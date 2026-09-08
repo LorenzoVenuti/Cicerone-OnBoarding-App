@@ -1,0 +1,33 @@
+# Dati reali: nomi, indirizzi e piani formativi di persone vere.
+# Non entrano nel repository, in nessuna forma.
+dati/
+*.db
+*.xlsx
+
+.venv/
+__pycache__/
+*.pyc
+.DS_Store
+build/
+dist/
+
+# prodotti della compilazione
+dist/
+build/
+
+# pacchetti pronti per la consegna
+*.zip
+
+# Segreti: non esistono oggi, ma il giorno che nascono non devono entrare
+.env
+.env.*
+!.env.example
+secrets.json
+credentials.json
+*.pem
+*.key
+id_rsa*
+token*.json
+
+# Log e prodotti locali
+*.log

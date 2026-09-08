@@ -1,0 +1,15 @@
+OGGETTO: Formazione {{ risorsa }} - {{ data }} ore {{ ora_inizio }}
+
+Buongiorno,
+
+e' stata programmata una sessione di formazione per {{ risorsa }}.
+
+  Giorno:   {{ data_estesa }}
+  Orario:   {{ ora_inizio }} - {{ ora_fine }}
+  Argomento: {{ modulo }}
+  Tutor:    {{ tutor }}
+
+{% if dettaglio %}Dettaglio: {{ dettaglio }}
+{% endif %}
+Grazie e buon lavoro,
+{{ mittente }}

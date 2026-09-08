@@ -1,0 +1,81 @@
+name: Pacchetto macOS
+
+# Costruisce Cicerone.app su un Mac di GitHub, cosi' chi usa il programma non
+# deve installare Python. PyInstaller non compila per un sistema diverso dal
+# proprio: l'app per Mac va costruita su un Mac.
+#
+# Avviarlo a mano dalla scheda Actions ("Run workflow"), oppure pubblicare un
+# tag v* per ottenere anche una release con il pacchetto allegato.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  costruisci:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installa le dipendenze
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Esegui i test
+        # Se le regole del piano o l'invio si rompono, meglio saperlo prima di
+        # impacchettare che dal computer di chi usa il programma.
+        run: python -m unittest discover -s app -p "test_*.py"
+
+      - name: Costruisci il pacchetto
+        run: pyinstaller --clean --noconfirm Cicerone.spec
+
+      - name: Firma il pacchetto
+        # Sui Mac con chip Apple un binario senza firma non parte affatto: non
+        # e' un avviso, e' un rifiuto. Qui si firma "ad-hoc", che non richiede
+        # un account sviluppatore e basta a far partire l'app.
+        #
+        # Gli attributi estesi che il sistema attacca ai file fanno fallire
+        # codesign con "resource fork, Finder information, or similar detritus
+        # not allowed", e `xattr -c` non riesce a togliere `com.apple.provenance`.
+        # Si passa da una copia fatta con ditto, che li lascia fuori.
+        run: |
+          ditto --norsrc --noextattr --noqtn dist/Cicerone.app /tmp/Cicerone.app
+          codesign -s - --force --all-architectures --deep /tmp/Cicerone.app
+          rm -rf dist/Cicerone.app
+          ditto /tmp/Cicerone.app dist/Cicerone.app
+
+      - name: Verifica che sia stato prodotto e sia firmato
+        run: |
+          test -d "dist/Cicerone.app" || { echo "pacchetto non prodotto"; exit 1; }
+          codesign -dv dist/Cicerone.app 2>&1 | grep -q "Signature=adhoc" \
+            || { echo "il pacchetto non risulta firmato"; exit 1; }
+          echo "Cicerone.app pronto e firmato, $(du -sh dist/Cicerone.app | cut -f1)"
+
+      - name: Comprimi conservando i permessi
+        # Un .app e' una cartella: gli artifact di GitHub la ricomprimerebbero
+        # perdendo il bit di eseguibile, e l'app non partirebbe piu'. `ditto`
+        # produce uno zip che macOS riapre intatto.
+        run: ditto -c -k --keepParent dist/Cicerone.app Cicerone-macos.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cicerone-macos
+          path: Cicerone-macos.zip
+          retention-days: 90
+
+      - name: Allega alla release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Cicerone-macos.zip

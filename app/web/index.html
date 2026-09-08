@@ -1,0 +1,44 @@
+<!doctype html>
+<html lang="it">
+<head>
+  <meta charset="utf-8">
+  <title>Piano Formazione</title>
+  <script>try{var t=localStorage.getItem("tema")||(matchMedia("(prefers-color-scheme: dark)").matches?"scuro":"chiaro");document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
+  <link rel="stylesheet" href="/statico/style.css?v=13">
+</head>
+<body>
+  <header>
+    <div class="intestazione">
+      <span class="etichetta-scelta">In formazione</span>
+      <select id="scelta-piano" title="Cambia dipendente"></select>
+      <span class="sottotitolo" id="sottotitolo"></span>
+      <button class="azione" id="nuova-risorsa">Nuova risorsa</button>
+      <button class="tema" id="toggle-tema" title="Tema chiaro / scuro" aria-label="Cambia tema"></button>
+    </div>
+    <nav>
+      <button data-vista="agenda" class="attiva">Agenda</button>
+      <button data-vista="settimana">Settimana</button>
+      <button data-vista="piano">Piano ISO</button>
+      <button data-vista="moduli">Moduli</button>
+      <button data-vista="persone">Persone</button>
+      <button data-vista="mail">Mail inviate</button>
+    </nav>
+  </header>
+
+  <main>
+    <div id="avvisi"></div>
+    <section id="vista"></section>
+  </main>
+
+  <dialog id="finestra">
+    <h2 id="finestra-titolo"></h2>
+    <div class="contenuto" id="finestra-contenuto"></div>
+    <div class="piede">
+      <button class="azione" onclick="document.getElementById('finestra').close()">Annulla</button>
+      <button class="azione primario" id="finestra-conferma">Salva</button>
+    </div>
+  </dialog>
+
+  <script src="/statico/app.js?v=16"></script>
+</body>
+</html>

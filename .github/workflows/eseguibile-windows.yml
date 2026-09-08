@@ -1,0 +1,55 @@
+name: Eseguibile Windows
+
+# Costruisce Cicerone.exe su una macchina Windows di GitHub, cosi'
+# nessuno deve avere Python installato: ne' chi sviluppa, ne' chi usa l'app.
+#
+# Avviarlo a mano dalla scheda Actions ("Run workflow"), oppure pubblicare un
+# tag v* per ottenere anche una release con l'eseguibile allegato.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+# Senza questo il GITHUB_TOKEN e' di sola lettura e la creazione della release
+# fallisce con "Resource not accessible by integration".
+permissions:
+  contents: write
+
+jobs:
+  costruisci:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Installa le dipendenze
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Costruisci l'eseguibile
+        run: pyinstaller --clean --noconfirm Cicerone.spec
+
+      - name: Verifica che sia stato prodotto
+        run: |
+          if (-not (Test-Path dist/Cicerone.exe)) { throw "eseguibile non prodotto" }
+          $mb = [math]::Round((Get-Item dist/Cicerone.exe).Length / 1MB, 1)
+          Write-Host "Cicerone.exe pronto, $mb MB"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cicerone-windows
+          path: dist/Cicerone.exe
+          retention-days: 90
+
+      - name: Allega alla release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/Cicerone.exe
