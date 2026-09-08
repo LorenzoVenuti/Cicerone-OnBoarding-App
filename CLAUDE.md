@@ -93,6 +93,16 @@ broke the sheet: a real problem, reported by the user. Every reference to a
 person goes through `persona.id`. A session can have several tutors: the
 relation is `sessione_tutor`, not a text field.
 
+**4b. A plan is a copy of the catalogue, not a view of it.**
+`piano_modulo` is filled from `modulo_catalogo` when the plan is created, and
+from then on the two are independent: a closed plan is a certification document
+and must not change under the person who signed it. The copy left a hole,
+though - fill the catalogue after creating the first trainee, which is the
+natural order on an empty archive, and that plan stayed empty with nothing to
+schedule. So `rules.add_module_to_open_plans` gives a newly catalogued module to
+every plan whose `chiuso_il` is null, and to no closed one. Editing or deleting
+a catalogue module still does not touch existing plans, deliberately.
+
 **5. Sessions are never deleted.**
 They are cancelled, staying in the plan with state `Annullata`. The training
 plan is a certification document: it has to show what was called off too.

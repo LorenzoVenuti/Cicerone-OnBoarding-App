@@ -9,7 +9,7 @@ e' stata programmata una sessione di formazione per {{ risorsa }}.
   Argomento: {{ modulo }}
   Tutor:    {{ tutor }}
 
-{% if dettaglio %}Dettaglio: {{ dettaglio }}
+{% if dettaglio %}Titolo: {{ dettaglio }}
 {% endif %}
 Grazie e buon lavoro,
 {{ mittente }}

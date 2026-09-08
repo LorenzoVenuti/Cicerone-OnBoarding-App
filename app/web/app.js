@@ -476,7 +476,7 @@ async function cambiaColoreArea(nome, colore) {
   await caricaAree();
   catalogo = await api("/catalogue");
   const id = Number(el("scelta-piano").value);
-  if (piano && id) await caricaPiano(id);   // aggiorna i colori nelle sessioni
+  if (piano && id) await caricaPiano(id);   // refresh the colours on the sessions
   disegna();
 }
 
@@ -538,6 +538,10 @@ function apriNuovoModulo() {
     el("finestra").close();
     catalogo = await api("/catalogue");
     await caricaAree();
+    // The module has just been added to the open plans as well: reload the one
+    // on screen, or it would only appear after a restart.
+    const idPiano = Number(el("scelta-piano").value);
+    if (piano && idPiano) await caricaPiano(idPiano);
     vistaModuli();
   };
   el("finestra").showModal();
@@ -962,7 +966,7 @@ function campiSessione(s = {}) {
       <div class="campo"><label>Fine</label><input type="time" id="c-fine" value="${s.ora_fine ?? "12:30"}"></div>
     </div>
     <div class="campo"><label>Modulo</label><select id="c-modulo"><option value="">— nessuno —</option>${opzioniModuli}</select></div>
-    <div class="campo"><label>Dettaglio</label><input id="c-dettaglio" value="${esc(s.dettaglio) ?? ""}"></div>
+    <div class="campo"><label>Titolo</label><input id="c-dettaglio" value="${esc(s.dettaglio) ?? ""}"></div>
     <div class="campo"><label>Tutor <span class="sub">chi tiene la sessione &middot; puoi sceglierne piu' di uno</span></label>
       <div class="scelta-multipla" id="c-tutor">${opzioniTutor || `<span class="nota" style="padding:6px">Nessuna persona in rubrica. Aggiungine da <b>Persone</b>.</span>`}</div></div>
     <div class="campo"><label>Note</label><input id="c-note" value="${esc(s.note) ?? ""}"></div>

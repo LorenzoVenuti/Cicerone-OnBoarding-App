@@ -77,6 +77,50 @@ def ensure_area_colours(conn: sqlite3.Connection) -> None:
     conn.commit()
 
 
+def add_module_to_open_plans(conn: sqlite3.Connection, code: str) -> int:
+    """Gives a newly catalogued module to the plans that are still open.
+
+    A plan is a copy of the catalogue taken the day the plan was created, not a
+    live view of it, and that is deliberate: a closed plan is a certification
+    document and must not change under the person who signed it.
+
+    But the copy left a hole. Whoever fills the catalogue after creating the
+    first trainee - which is the natural order when starting from an empty
+    archive - ended up with a plan that had no modules at all, and no way to
+    schedule anything for that person. So a module added to the catalogue
+    reaches every plan that is still open, and no closed one.
+
+    Returns how many plans gained it. Idempotent, thanks to the UNIQUE on
+    (piano_id, codice): a plan that already has the code is left alone.
+    """
+    module = conn.execute(
+        "SELECT * FROM modulo_catalogo WHERE codice = ?", (code,)
+    ).fetchone()
+    if module is None:
+        return 0
+
+    added = 0
+    for plan in conn.execute("SELECT id FROM piano WHERE chiuso_il IS NULL").fetchall():
+        # At the end of that plan's list: the catalogue's own order says nothing
+        # about where it belongs in a plan that was built before it existed.
+        order = conn.execute(
+            "SELECT COALESCE(MAX(ordine), 0) + 1 AS o FROM piano_modulo WHERE piano_id = ?",
+            (plan["id"],),
+        ).fetchone()["o"]
+        added += conn.execute(
+            """
+            INSERT OR IGNORE INTO piano_modulo
+                (piano_id, codice, area, titolo, applicabile, modalita,
+                 tutor_referente_id, ordine)
+            VALUES (?, ?, ?, ?, 'SI', ?, ?, ?)
+            """,
+            (plan["id"], module["codice"], module["area"], module["titolo"],
+             module["modalita_default"], module["tutor_referente_default_id"], order),
+        ).rowcount
+    conn.commit()
+    return added
+
+
 def duration_hours(start_time: str, end_time: str) -> float:
     """Length in hours between two 'HH:MM' times."""
     start = datetime.strptime(start_time, "%H:%M")

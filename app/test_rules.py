@@ -272,10 +272,88 @@ class AreaColourTests(PlanFixture):
         self.assertIn("Generale", colori)
         self.assertIn("IT", colori)
 
-        rules.ensure_area_colours(self.conn)   # seconda volta: stabile
-        di_nuovo = {r["nome"]: r["colore"]
-                    for r in self.conn.execute("SELECT nome, colore FROM area")}
-        self.assertEqual(colori, di_nuovo)
+        rules.ensure_area_colours(self.conn)   # a second time: stable
+        again = {r["nome"]: r["colore"]
+                 for r in self.conn.execute("SELECT nome, colore FROM area")}
+        self.assertEqual(colori, again)
+
+
+class ModuleReachesOpenPlansTests(PlanFixture):
+    """Filling the catalogue after creating a trainee must not leave them empty.
+
+    Starting from an empty archive, creating the person first and the modules
+    afterwards is the natural order, and it used to produce a plan with nothing
+    in it: the plan copies the catalogue as it was the day it was created.
+    """
+
+    def _catalogue(self, code: str = "M09", title: str = "Ciclo passivo") -> None:
+        self.conn.execute(
+            """INSERT INTO modulo_catalogo (codice, area, titolo, modalita_default, ordine)
+               VALUES (?, 'Acquisti', ?, 'Spiegazione', 9)""",
+            (code, title),
+        )
+        self.conn.commit()
+
+    def test_a_module_catalogued_later_reaches_an_open_plan(self) -> None:
+        self._catalogue()
+        self.assertEqual(1, rules.add_module_to_open_plans(self.conn, "M09"))
+
+        codes = [r["codice"] for r in self.conn.execute(
+            "SELECT codice FROM piano_modulo WHERE piano_id = ? ORDER BY ordine",
+            (self.piano,),
+        )]
+        self.assertEqual(["M01", "M02", "M09"], codes)
+
+    def test_it_lands_at_the_end_of_the_plan(self) -> None:
+        """The catalogue's own order says nothing about a plan built before it."""
+        self._catalogue()
+        rules.add_module_to_open_plans(self.conn, "M09")
+        last = self.conn.execute(
+            "SELECT codice FROM piano_modulo WHERE piano_id = ? ORDER BY ordine DESC LIMIT 1",
+            (self.piano,),
+        ).fetchone()["codice"]
+        self.assertEqual("M09", last)
+
+    def test_running_it_twice_does_not_duplicate(self) -> None:
+        self._catalogue()
+        rules.add_module_to_open_plans(self.conn, "M09")
+        self.assertEqual(0, rules.add_module_to_open_plans(self.conn, "M09"))
+        self.assertEqual(
+            1,
+            self.conn.execute(
+                "SELECT COUNT(*) c FROM piano_modulo WHERE piano_id = ? AND codice = 'M09'",
+                (self.piano,),
+            ).fetchone()["c"],
+        )
+
+    def test_a_closed_plan_is_left_alone(self) -> None:
+        """A closed plan is a signed document: it does not change underneath."""
+        self.conn.execute(
+            "UPDATE piano SET chiuso_il = '2026-02-01T09:00:00' WHERE id = ?",
+            (self.piano,),
+        )
+        self.conn.commit()
+        self._catalogue()
+        self.assertEqual(0, rules.add_module_to_open_plans(self.conn, "M09"))
+        self.assertEqual(
+            0,
+            self.conn.execute(
+                "SELECT COUNT(*) c FROM piano_modulo WHERE piano_id = ? AND codice = 'M09'",
+                (self.piano,),
+            ).fetchone()["c"],
+        )
+
+    def test_an_unknown_code_changes_nothing(self) -> None:
+        self.assertEqual(0, rules.add_module_to_open_plans(self.conn, "M99"))
+
+    def test_the_new_module_is_applicable_and_still_to_plan(self) -> None:
+        """It arrives usable: it has to be schedulable straight away."""
+        self._catalogue()
+        rules.add_module_to_open_plans(self.conn, "M09")
+        row = [m for m in rules.module_summary(self.conn, self.piano)
+               if m["codice"] == "M09"][0]
+        self.assertEqual("SI", row["applicabile"])
+        self.assertEqual("Da pianificare", row["stato"])
 
 
 if __name__ == "__main__":

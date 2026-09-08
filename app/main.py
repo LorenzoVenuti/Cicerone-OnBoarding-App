@@ -353,7 +353,10 @@ async def create_catalogue_module(data: CatalogueModuleIn):
     else:
         rules.ensure_area_colours(conn)  # new area with no colour: use a default
     conn.commit()
-    return {"codice": data.codice}
+    # A module catalogued after a trainee was created still has to reach that
+    # trainee's plan, or there would be nothing to schedule against.
+    reached = rules.add_module_to_open_plans(conn, data.codice)
+    return {"codice": data.codice, "piani_aggiornati": reached}
 
 
 @app.patch("/api/catalogue/{code}")
