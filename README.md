@@ -209,4 +209,5 @@ MIT — vedi [LICENSE](LICENSE).
 ## Prima di metterci mano
 
 [CLAUDE.md](CLAUDE.md) raccoglie le regole del dominio che dai sorgenti non si
-deducono, e gli errori che costano di piu'. [ROADMAP.md](ROADMAP.md) dice cosa manca.
+deducono, e gli errori che costano di piu'. [ROADMAP.md](ROADMAP.md) dice cosa
+manca. [SPEC.md](SPEC.md) le decisioni prese e il perche'.
