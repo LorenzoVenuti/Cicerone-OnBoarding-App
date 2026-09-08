@@ -1,0 +1,720 @@
+/* Inter, incorporato: l'app gira offline, niente puo' arrivare dalla rete.
+   Font variabile, un solo file per tutti i pesi. SIL Open Font License. */
+@font-face {
+  font-family: "Inter";
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url("/statico/font/inter.woff2") format("woff2");
+}
+
+:root {
+  /* colori di stato ereditati dal foglio Excel: chi li usava li riconosce.
+     Restano identici col tema scuro: chi cerca il "verdino" lo trova sempre. */
+  --verde: #C6EFCE;
+  --azzurro: #BDD7EE;
+  --arancio: #FCE4D6;
+  --rosa: #F2DCDB;
+  --grigio: #D9D9D9;
+  --giallo: #FFF8E1;
+  /* sopra i colori di stato il testo resta scuro nei due temi, o sparirebbe */
+  --su-stato: #202a37;
+
+  --testo: #1a2330;
+  --tenue: #6b7684;
+  --debole: #98a2b0;
+  --bordo: #e3e7ec;
+  --bordo-forte: #cfd6de;
+  --sfondo: #f6f7f9;
+  --carta: #ffffff;
+  --intestazione: #f2f4f7;   /* teste di tabella e del calendario */
+  --riga-hover: #fbfcfd;
+  --griglia: #eef1f5;        /* righe orarie del calendario */
+  --accento: #2557d6;
+  --accento-tenue: #eef3ff;
+  --allarme: #b42318;
+
+  --raggio: 8px;
+  --ombra: 0 1px 2px rgba(16, 24, 40, .05);
+  --ombra-alta: 0 12px 32px rgba(16, 24, 40, .16);
+  color-scheme: light;
+}
+
+/* Tema scuro: si invertono solo i neutri. I colori di stato no. */
+:root[data-theme="scuro"] {
+  --testo: #e7ecf3;
+  --tenue: #9aa6b4;
+  --debole: #6d7987;
+  --bordo: #2a313b;
+  --bordo-forte: #3b444f;
+  --sfondo: #14171c;
+  --carta: #1b2027;
+  --intestazione: #232a33;
+  --riga-hover: #222a33;
+  --griglia: #262d37;
+  --accento: #6f9bff;
+  --accento-tenue: #1d2b46;
+  --allarme: #ff7a6d;
+  --ombra: 0 1px 2px rgba(0, 0, 0, .4);
+  --ombra-alta: 0 16px 40px rgba(0, 0, 0, .55);
+  color-scheme: dark;
+}
+:root { transition: none; }
+body, header, .sessione, table, .settimana, dialog, button, input, select, .pastiglia {
+  transition: background-color .2s ease, border-color .2s ease, color .2s ease;
+}
+
+* { box-sizing: border-box; }
+
+body {
+  margin: 0;
+  font-family: "Inter", -apple-system, "Segoe UI", Roboto, sans-serif;
+  font-size: 14px;
+  line-height: 1.45;
+  color: var(--testo);
+  background: var(--sfondo);
+  -webkit-font-smoothing: antialiased;
+}
+
+/* numeri sempre allineati in colonna: orari, ore, conteggi */
+.orario, .durata, td.num, .blocco .quando, .settimana .ore span {
+  font-variant-numeric: tabular-nums;
+}
+
+/* ---------- intestazione ---------- */
+
+header {
+  background: var(--carta);
+  border-bottom: 1px solid var(--bordo);
+  padding: 12px 24px 0;
+  position: sticky;
+  top: 0;
+  z-index: 10;
+}
+
+.intestazione { display: flex; align-items: center; gap: 8px; }
+.intestazione .sottotitolo { color: var(--tenue); font-size: 13px; }
+.intestazione .azione { margin-left: auto; }
+.etichetta-scelta {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--debole);
+}
+
+#scelta-piano {
+  width: auto;
+  font-family: inherit;
+  font-size: 17px;
+  font-weight: 600;
+  letter-spacing: -.01em;
+  border: 1px solid var(--bordo-forte);
+  border-radius: 7px;
+  padding: 4px 30px 4px 11px;
+  background: var(--carta);
+  color: var(--testo);
+  cursor: pointer;
+  appearance: none;
+  box-shadow: var(--ombra);
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%232557d6' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 9px center;
+}
+#scelta-piano:hover { border-color: var(--accento); }
+/* nel tema scuro il chevron del selettore va schiarito per restare visibile */
+:root[data-theme="scuro"] #scelta-piano {
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 24 24' fill='none' stroke='%236f9bff' stroke-width='2.5' stroke-linecap='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+}
+
+/* ---------- interruttore tema ---------- */
+button.tema {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 38px;
+  height: 38px;
+  flex: none;
+  padding: 0;
+  border: 1px solid var(--bordo-forte);
+  border-radius: 8px;
+  background: var(--carta);
+  color: var(--tenue);
+  cursor: pointer;
+  box-shadow: var(--ombra);
+  transition: color .12s, border-color .12s, background .12s;
+}
+button.tema:hover { color: var(--accento); border-color: var(--accento); }
+button.tema svg {
+  width: 18px;
+  height: 18px;
+  transition: transform .35s cubic-bezier(.2,.7,.3,1);
+}
+button.tema:hover svg { transform: rotate(35deg); }
+:root[data-theme="scuro"] button.tema:hover svg { transform: rotate(-20deg); }
+
+nav { display: flex; gap: 2px; margin-top: 10px; }
+nav button {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  border: none;
+  background: none;
+  padding: 11px 16px;
+  font: inherit;
+  font-size: 14.5px;
+  color: var(--tenue);
+  cursor: pointer;
+  border-bottom: 2px solid transparent;
+  border-radius: 6px 6px 0 0;
+}
+nav button:hover { color: var(--testo); background: var(--sfondo); }
+nav button.attiva {
+  color: var(--accento);
+  border-bottom-color: var(--accento);
+  font-weight: 600;
+  background: none;
+}
+nav button svg { width: 16px; height: 16px; opacity: .85; }
+
+main { padding: 20px 24px 60px; max-width: 1440px; }
+
+/* ---------- avvisi ---------- */
+
+.avviso {
+  display: flex;
+  align-items: flex-start;
+  gap: 9px;
+  background: var(--giallo);
+  color: var(--su-stato);
+  border: 1px solid #ecd9a0;
+  border-radius: var(--raggio);
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+}
+.avviso svg { width: 17px; height: 17px; flex: none; margin-top: 1px; color: #a97a10; }
+.avviso strong { margin-right: 6px; }
+.avviso code { background: rgba(0,0,0,.05); padding: 1px 5px; border-radius: 4px; font-size: 12.5px; }
+/* X per nascondere l'avviso quando l'ha letto */
+.chiudi-avviso {
+  margin-left: auto;
+  flex: none;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: none;
+  border-radius: 6px;
+  background: transparent;
+  color: #9a7a2e;
+  cursor: pointer;
+  transition: background .12s;
+}
+.chiudi-avviso svg { width: 14px; height: 14px; margin: 0; color: inherit; }
+.chiudi-avviso:hover { background: rgba(0,0,0,.09); color: var(--su-stato); }
+
+/* ---------- agenda ---------- */
+
+.barra {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 14px;
+}
+
+.giorno { margin-bottom: 20px; }
+.giorno h3 {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  font-size: 12px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .05em;
+  color: var(--tenue);
+  margin: 0 0 7px;
+}
+.giorno h3::after {
+  content: "";
+  flex: 1;
+  height: 1px;
+  background: var(--bordo);
+}
+.giorno.passato h3 { opacity: .5; }
+
+.sessione {
+  display: grid;
+  grid-template-columns: 104px 54px 1fr 190px 116px auto;
+  gap: 14px;
+  align-items: center;
+  background: var(--carta);
+  border: 1px solid var(--bordo);
+  border-left: 4px solid var(--grigio);
+  border-radius: var(--raggio);
+  padding: 10px 13px;
+  margin-bottom: 6px;
+  box-shadow: var(--ombra);
+  transition: border-color .12s, box-shadow .12s;
+}
+.sessione:hover { border-color: var(--bordo-forte); box-shadow: 0 2px 8px rgba(16,24,40,.08); }
+.sessione .orario { color: var(--tenue); font-size: 13.5px; }
+.sessione .durata { color: var(--debole); font-size: 12px; }
+.sessione .titolo { font-weight: 500; }
+.sessione .modulo { color: var(--tenue); font-size: 12px; margin-top: 1px; }
+.sessione .tutor { color: var(--tenue); font-size: 13px; }
+.sessione .azioni { display: flex; gap: 5px; }
+.sessione .azioni button { color: var(--tenue); }
+.sessione .azioni button:hover { color: var(--accento); }
+
+.pastiglia {
+  display: inline-block;
+  padding: 3px 10px;
+  border-radius: 20px;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--su-stato);
+  border: 1px solid rgba(0,0,0,.07);
+  white-space: nowrap;
+}
+.auto { font-size: 11px; color: var(--debole); margin-left: 5px; }
+
+/* ---------- tabelle ---------- */
+
+table {
+  border-collapse: separate;
+  border-spacing: 0;
+  width: 100%;
+  background: var(--carta);
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio);
+  overflow: hidden;
+  box-shadow: var(--ombra);
+}
+th, td {
+  border-bottom: 1px solid var(--bordo);
+  border-right: 1px solid var(--bordo);
+  padding: 7px 10px;
+  text-align: left;
+  vertical-align: middle;
+}
+th:last-child, td:last-child { border-right: none; }
+tbody tr:last-child td { border-bottom: none; }
+th {
+  background: var(--intestazione);
+  font-weight: 600;
+  font-size: 11.5px;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  color: var(--tenue);
+  white-space: nowrap;
+}
+tbody tr:hover td { background: var(--riga-hover); }
+td.num { text-align: right; }
+td.modificabile { background: var(--giallo); color: var(--su-stato); }
+tbody tr:hover td.modificabile { background: #fdf4dd; }
+
+input, select, textarea {
+  font: inherit;
+  color: inherit;
+  border: 1px solid var(--bordo-forte);
+  border-radius: 6px;
+  padding: 6px 8px;
+  width: 100%;
+  background: var(--carta);
+}
+td input, td select {
+  border-color: transparent;
+  background: transparent;
+  padding: 3px 5px;
+}
+td input:hover, td select:hover { border-color: var(--bordo-forte); background: var(--carta); }
+input:focus, select:focus, textarea:focus {
+  outline: none;
+  border-color: var(--accento);
+  box-shadow: 0 0 0 3px var(--accento-tenue);
+}
+input::placeholder { color: var(--debole); }
+
+/* ---------- pulsanti ---------- */
+
+button.azione {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: inherit;
+  font-size: 14px;
+  padding: 8px 14px;
+  border: 1px solid var(--bordo-forte);
+  border-radius: 7px;
+  background: var(--carta);
+  color: var(--testo);
+  cursor: pointer;
+  box-shadow: var(--ombra);
+  transition: border-color .12s, color .12s, background .12s;
+}
+button.azione:hover { border-color: var(--accento); color: var(--accento); }
+button.azione:active { transform: translateY(.5px); }
+button.azione svg { width: 15px; height: 15px; }
+button.primario {
+  background: var(--accento);
+  color: #fff;
+  border-color: var(--accento);
+  padding: 10px 18px;
+  font-size: 14.5px;
+  font-weight: 500;
+}
+button.primario:hover { background: #1e49bb; border-color: #1e49bb; color: #fff; }
+/* nel tema scuro l'accento e' chiaro: testo scuro sul primario, non bianco */
+:root[data-theme="scuro"] button.primario { color: #0e1626; }
+:root[data-theme="scuro"] button.primario:hover {
+  background: #8fb2ff; border-color: #8fb2ff; color: #0e1626;
+}
+
+button.azione.piccolo { padding: 5px 9px; font-size: 12px; box-shadow: none; }
+.impostazioni-mail {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 18px;
+  background: var(--carta);
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio);
+  padding: 14px 16px;
+  margin-bottom: 14px;
+  box-shadow: var(--ombra);
+}
+.impostazioni-mail .nota { margin-top: 3px; }
+.interruttore-mail {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  color: var(--tenue);
+  font-weight: 600;
+  cursor: pointer;
+}
+.interruttore-mail input {
+  position: absolute;
+  opacity: 0;
+  width: 1px;
+  height: 1px;
+}
+.interruttore-pallino {
+  width: 40px;
+  height: 22px;
+  border-radius: 20px;
+  background: var(--bordo-forte);
+  position: relative;
+  transition: background .15s ease;
+}
+.interruttore-pallino::after {
+  content: "";
+  position: absolute;
+  top: 3px;
+  left: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: 50%;
+  background: var(--carta);
+  box-shadow: var(--ombra);
+  transition: transform .15s ease;
+}
+.interruttore-mail input:checked + .interruttore-pallino { background: #2f9e44; }
+.interruttore-mail input:checked + .interruttore-pallino::after { transform: translateX(18px); }
+.interruttore-mail input:focus-visible + .interruttore-pallino {
+  outline: 3px solid var(--accento-tenue);
+}
+.stato-mail { font-size: 11px; font-weight: 700; letter-spacing: .03em; }
+.stato-mail.positivo { color: #237a36; }
+.stato-mail.attenzione { color: var(--allarme); }
+.azioni-mail { white-space: nowrap; }
+.azioni-mail button + button { margin-left: 5px; }
+
+/* ---------- finestra ---------- */
+
+dialog {
+  border: none;
+  border-radius: 12px;
+  padding: 0;
+  width: min(540px, 92vw);
+  box-shadow: var(--ombra-alta);
+  color: var(--testo);
+}
+dialog::backdrop { background: rgba(16, 24, 40, .45); }
+dialog h2 {
+  margin: 0;
+  padding: 17px 22px;
+  border-bottom: 1px solid var(--bordo);
+  font-size: 16px;
+  font-weight: 600;
+}
+dialog .contenuto { padding: 18px 22px; display: grid; gap: 13px; max-height: 66vh; overflow-y: auto; }
+dialog .piede {
+  padding: 14px 22px;
+  border-top: 1px solid var(--bordo);
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+  background: var(--riga-hover);
+  border-radius: 0 0 12px 12px;
+}
+.campo label {
+  display: block;
+  font-size: 12px;
+  font-weight: 500;
+  color: var(--tenue);
+  margin-bottom: 4px;
+}
+.affiancati { display: grid; grid-template-columns: 1fr 1fr; gap: 13px; }
+.campo label .sub {
+  font-weight: 400;
+  text-transform: none;
+  letter-spacing: 0;
+  color: var(--debole);
+  font-size: 11.5px;
+  margin-left: 4px;
+}
+.scelta-multipla {
+  border: 1px solid var(--bordo-forte);
+  border-radius: 7px;
+  max-height: 168px;
+  overflow-y: auto;
+  background: var(--carta);
+}
+.riga-scelta {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  padding: 7px 11px;
+  cursor: pointer;
+  border-bottom: 1px solid var(--bordo);
+  font-size: 13.5px;
+}
+.riga-scelta:last-child { border-bottom: none; }
+.riga-scelta:hover { background: var(--accento-tenue); }
+.riga-scelta input { width: auto; accent-color: var(--accento); width: 16px; height: 16px; flex: none; }
+.riga-scelta em { font-style: normal; font-size: 12px; }
+
+/* ---------- calendario settimanale ---------- */
+
+.barra-settimana { display: flex; align-items: center; gap: 8px; margin-bottom: 14px; }
+.barra-settimana .periodo { font-weight: 600; min-width: 240px; }
+
+.settimana {
+  display: grid;
+  grid-template-columns: 56px repeat(var(--giorni, 5), 1fr);
+  background: var(--carta);
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio);
+  overflow: hidden;
+  box-shadow: var(--ombra);
+}
+.settimana .angolo, .settimana .testa {
+  border-bottom: 1px solid var(--bordo);
+  padding: 8px 6px;
+  font-size: 11.5px;
+  color: var(--tenue);
+  background: var(--intestazione);
+  text-align: center;
+}
+.settimana .testa .numero {
+  font-weight: 600;
+  font-size: 15px;
+  color: var(--testo);
+  display: block;
+  line-height: 1.3;
+}
+.settimana .testa.oggi { background: var(--accento-tenue); }
+.settimana .testa.oggi .numero { color: var(--accento); }
+.settimana .ore { border-right: 1px solid var(--bordo); position: relative; }
+.settimana .ore span {
+  position: absolute;
+  right: 7px;
+  font-size: 11px;
+  color: var(--debole);
+  transform: translateY(-6px);
+}
+.settimana .colonna {
+  position: relative;
+  border-right: 1px solid var(--bordo);
+  background-image: repeating-linear-gradient(
+    to bottom, transparent, transparent calc(var(--altezza-ora) - 1px),
+    var(--griglia) calc(var(--altezza-ora) - 1px), var(--griglia) var(--altezza-ora));
+}
+.settimana .colonna:last-child { border-right: none; }
+
+.blocco {
+  position: absolute;
+  border-radius: 5px;
+  border: 1px solid rgba(0,0,0,.1);
+  border-left: 3px solid rgba(0,0,0,.22);
+  padding: 3px 6px;
+  font-size: 11.5px;
+  color: var(--su-stato);
+  overflow: hidden;
+  cursor: pointer;
+  line-height: 1.3;
+  box-shadow: var(--ombra);
+  transition: transform .14s cubic-bezier(.2,.7,.3,1), box-shadow .14s ease;
+  /* rientra a ogni disegno: cambiando settimana i blocchi entrano di nuovo */
+  animation: blocco-entra .32s cubic-bezier(.2,.7,.3,1) backwards;
+  animation-delay: calc(var(--i, 0) * .035s);
+}
+.blocco:hover {
+  transform: translateY(-2px);
+  box-shadow: var(--ombra-alta);
+  z-index: 4;
+}
+@keyframes blocco-entra {
+  from { opacity: 0; transform: translateY(7px) scale(.985); }
+  to   { opacity: 1; transform: none; }
+}
+/* le colonne del calendario scorrono dentro quando si cambia settimana */
+.settimana .colonna { animation: colonna-entra .3s ease backwards; }
+.settimana .colonna:nth-child(2) { animation-delay: .02s; }
+.settimana .colonna:nth-child(3) { animation-delay: .05s; }
+.settimana .colonna:nth-child(4) { animation-delay: .08s; }
+.settimana .colonna:nth-child(5) { animation-delay: .11s; }
+.settimana .colonna:nth-child(6) { animation-delay: .14s; }
+@keyframes colonna-entra {
+  from { opacity: 0; transform: translateX(10px); }
+  to   { opacity: 1; transform: none; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .blocco, .settimana .colonna { animation: none; }
+}
+.blocco .quando { color: #55606e; font-size: 10.5px; }
+.blocco .cosa { font-weight: 500; }
+.blocco.corto { padding: 2px 6px; display: flex; align-items: center; }
+.blocco.corto .cosa { font-size: 11px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+/* il colore del blocco dice l'area; l'annullata resta riconoscibile lo stesso */
+.blocco.annullata { opacity: .5; }
+.blocco.annullata .cosa { text-decoration: line-through; }
+
+/* ---------- conflitti ---------- */
+
+.conflitto {
+  display: flex;
+  gap: 9px;
+  background: #fef3f2;
+  color: var(--su-stato);
+  border: 1px solid #f3c4c0;
+  border-radius: var(--raggio);
+  padding: 10px 12px;
+  font-size: 13px;
+}
+.conflitto svg { width: 17px; height: 17px; flex: none; margin-top: 1px; color: var(--allarme); }
+.conflitto strong { display: block; margin-bottom: 2px; color: #912018; }
+
+/* ---------- varie ---------- */
+
+.legenda { display: flex; gap: 15px; flex-wrap: wrap; font-size: 12.5px; color: var(--tenue); }
+.legenda span { display: flex; align-items: center; gap: 6px; }
+.legenda i {
+  width: 12px; height: 12px;
+  border-radius: 3px;
+  border: 1px solid rgba(0,0,0,.12);
+  display: inline-block;
+}
+.vuoto {
+  color: var(--tenue);
+  padding: 56px 24px;
+  text-align: center;
+  background: var(--carta);
+  border: 1px dashed var(--bordo-forte);
+  border-radius: var(--raggio);
+}
+.mancante { color: var(--allarme); }
+.nota { color: var(--tenue); margin: 0; font-size: 13px; }
+.tenue-nota { color: var(--debole); font-size: 12.5px; }
+
+/* ---------- colore delle aree ---------- */
+
+/* pastiglia di colore + nome area, nella tabella dei moduli */
+.cella-area { display: flex; align-items: center; gap: 8px; }
+.cella-area input:not([type="color"]) { border-color: transparent; background: transparent; }
+.cella-area input:not([type="color"]):hover { border-color: var(--bordo-forte); background: var(--carta); }
+
+/* input nativo del colore, reso un pallino pulito */
+input[type="color"] {
+  -webkit-appearance: none;
+  appearance: none;
+  width: 26px;
+  height: 26px;
+  min-width: 26px;
+  padding: 0;
+  border: 1px solid var(--bordo-forte);
+  border-radius: 6px;
+  background: none;
+  cursor: pointer;
+}
+input[type="color"]::-webkit-color-swatch-wrapper { padding: 2px; }
+input[type="color"]::-webkit-color-swatch { border: none; border-radius: 4px; }
+input[type="color"]::-moz-color-swatch { border: none; border-radius: 4px; }
+
+/* scelta del colore nel dialog di un nuovo modulo */
+.scelta-colore { display: flex; align-items: center; gap: 10px; }
+.scelta-colore #c-colore { width: 40px; height: 34px; min-width: 40px; }
+.campioni { display: flex; flex-wrap: wrap; gap: 6px; }
+.campione {
+  width: 24px;
+  height: 24px;
+  padding: 0;
+  border: 1px solid rgba(0,0,0,.15);
+  border-radius: 6px;
+  cursor: pointer;
+}
+.campione:hover { transform: scale(1.12); box-shadow: var(--ombra); }
+
+/* esito della prova di invio, nella configurazione delle email */
+.esito-ok { color: #17663a; margin: 6px 0 0; font-size: 13px; }
+:root[data-theme="scuro"] .esito-ok { color: #7ddaa4; }
+#esito-prova p { margin: 6px 0 0; font-size: 13px; }
+.scelta-colore #c-prova { flex: 1; }
+
+/* ---------- registro delle notifiche e giorni passati ---------- */
+
+.azioni-registro { display: flex; align-items: center; gap: 12px; }
+.corpo-mail {
+  margin: 0;
+  padding: 10px 12px;
+  background: var(--sfondo);
+  border: 1px solid var(--bordo);
+  border-radius: var(--raggio);
+  font: inherit;
+  font-size: 13px;
+  white-space: pre-wrap;
+  word-break: break-word;
+  max-height: 260px;
+  overflow-y: auto;
+}
+/* i giorni gia' passati restano richiusi: l'agenda si apre su cosa viene dopo */
+.giorni-passati { margin-bottom: 18px; }
+.giorni-passati > summary {
+  cursor: pointer;
+  color: var(--tenue);
+  font-size: 12.5px;
+  padding: 7px 2px;
+  list-style: none;
+}
+.giorni-passati > summary::-webkit-details-marker { display: none; }
+.giorni-passati > summary::before { content: "▸ "; }
+.giorni-passati[open] > summary::before { content: "▾ "; }
+.giorni-passati > summary:hover { color: var(--accento); }
+
+/* codice del modulo, nella scheda Piano ISO */
+.codice-modulo {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12.5px;
+  color: var(--tenue);
+  margin-left: auto;
+  margin-right: 10px;
+}
+.codice-modulo input { width: 190px; font-size: 13px; }

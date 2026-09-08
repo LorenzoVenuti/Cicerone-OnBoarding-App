@@ -1,0 +1,13 @@
+fastapi
+uvicorn[standard]
+pywebview
+jinja2
+
+# Genera il PDF del modulo ISO da stampare e firmare.
+fpdf2
+
+# Serve solo a importa.py, in fase di installazione: escluso dall'eseguibile.
+openpyxl
+
+# Invio tramite l'Outlook installato: solo su Windows.
+pywin32; sys_platform == "win32"

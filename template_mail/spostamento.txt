@@ -1,0 +1,16 @@
+OGGETTO: SPOSTATA - Formazione {{ risorsa }} del {{ data_precedente }}
+
+Buongiorno,
+
+la sessione di formazione per {{ risorsa }} e' stata spostata.
+
+  Prima:  {{ data_precedente_estesa }}, {{ ora_inizio_precedente }} - {{ ora_fine_precedente }}
+  Adesso: {{ data_estesa }}, {{ ora_inizio }} - {{ ora_fine }}
+
+  Argomento: {{ modulo }}
+  Tutor:     {{ tutor }}
+
+{% if note %}Note: {{ note }}
+{% endif %}
+Ci scusiamo per il cambiamento.
+{{ mittente }}

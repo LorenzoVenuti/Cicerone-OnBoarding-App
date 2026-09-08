@@ -1,0 +1,16 @@
+OGGETTO: ANNULLATA - Formazione {{ risorsa }} del {{ data }}
+
+Buongiorno,
+
+la sessione di formazione per {{ risorsa }} e' stata annullata.
+
+  Giorno:   {{ data_estesa }}
+  Orario:   {{ ora_inizio }} - {{ ora_fine }}
+  Argomento: {{ modulo }}
+  Tutor:    {{ tutor }}
+
+{% if note %}Motivo: {{ note }}
+{% endif %}
+Non e' previsto al momento un recupero: verra' comunicato separatamente.
+
+{{ mittente }}
