@@ -18,16 +18,16 @@ const COLORI = {
 };
 const ORA_PRIMA = 8, ORA_ULTIMA = 19, ALTEZZA_ORA = 46;
 
-// Stessa palette del backend (regole.PALETTE_AREE): serve solo a proporre un
-// colore libero quando si crea una nuova area.
+// Same palette as the backend (rules.AREA_PALETTE): it only serves to suggest
+// a free colour when a new area is created.
 const PALETTE_AREE = [
   "#F5C9C9", "#F5DCC0", "#F0EEBE", "#DBEEBE", "#C6EFCE", "#C0EFD6",
   "#BEEFEF", "#C0DCF5", "#C9C9F5", "#DCC0F5", "#F0BEEF", "#F5C0DC",
 ];
 
 
-/* Icone disegnate qui invece che prese da una libreria: sono una decina di
-   forme geometriche, e cosi' non c'e' un pacchetto in piu' da aggiornare. */
+/* Icons drawn here rather than pulled from a library: they are a dozen simple
+   shapes, and this way there is no extra package to keep updated. */
 const FORME = {
   agenda: '<line x1="8" y1="6" x2="21" y2="6"/><line x1="8" y1="12" x2="21" y2="12"/><line x1="8" y1="18" x2="21" y2="18"/><circle cx="3.5" cy="6" r="1.2"/><circle cx="3.5" cy="12" r="1.2"/><circle cx="3.5" cy="18" r="1.2"/>',
   settimana: '<rect x="3" y="4" width="18" height="17" rx="2"/><line x1="3" y1="9" x2="21" y2="9"/><line x1="9" y1="9" x2="9" y2="21"/><line x1="15" y1="9" x2="15" y2="21"/><line x1="8" y1="2" x2="8" y2="6"/><line x1="16" y1="2" x2="16" y2="6"/>',
@@ -86,41 +86,41 @@ function inizioSettimana(d) {
   return l;
 }
 
-/* ---------- avvio ---------- */
+/* ---------- start-up ---------- */
 
 async function avvia() {
-  stato = await api("/stato");
-  persone = await api("/persone");
-  catalogo = await api("/catalogo");
+  stato = await api("/state");
+  persone = await api("/people");
+  catalogo = await api("/catalogue");
   await caricaAree();
 
   const scelta = el("scelta-piano");
-  scelta.innerHTML = stato.piani.map((p) =>
+  scelta.innerHTML = stato.plans.map((p) =>
     `<option value="${p.id}">${esc(p.risorsa)}</option>`).join("")
     || '<option value="">nessuna risorsa</option>';
 
-  if (stato.piani.length) await caricaPiano(stato.piani[0].id);
+  if (stato.plans.length) await caricaPiano(stato.plans[0].id);
   mostraAvvisi();
   disegna();
-  // Al primo avvio su un computer nuovo si chiede subito da dove spedire:
-  // e' la cosa che manca perche' l'app faccia il suo mestiere.
-  if (!stato.mail_configurata) apriConfigurazioneMail();
+  // On a new computer we ask straight away where mail should be sent from:
+  // without it the app cannot do its job.
+  if (!stato.mail_configured) apriConfigurazioneMail();
 }
 
 async function caricaAree() {
-  listaAree = await api("/aree");
+  listaAree = await api("/areas");
   aree = Object.fromEntries(listaAree.map((a) => [a.nome, a.colore]));
 }
 
 async function caricaPiano(id) {
-  piano = await api(`/piano/${id}`);
+  piano = await api(`/plan/${id}`);
   el("scelta-piano").value = id;
-  const t = piano.testata;
+  const t = piano.header;
   el("sottotitolo").textContent =
     [t.mansione, t.reparto, t.data_inizio ? `dal ${dataEstesa(t.data_inizio)}` : null]
       .filter(Boolean).join(" · ");
-  // Il calendario si apre sulla settimana di oggi, non sulla prima sessione:
-  // e' inutile ripartire da mesi fa quando quelle sessioni sono gia' svolte.
+  // The calendar opens on the current week, not on the first session: there is
+  // no point starting months back when those sessions are already done.
   lunediCorrente = inizioSettimana(new Date());
 }
 
@@ -130,8 +130,8 @@ el("scelta-piano").addEventListener("change", async (e) => {
 });
 el("nuova-risorsa").addEventListener("click", apriNuovaRisorsa);
 
-/* Tema chiaro/scuro. L'attributo e' gia' impostato in <head> per non far
-   lampeggiare la pagina; qui aggiorniamo l'icona e gestiamo il clic. */
+/* Light/dark theme. The attribute is already set in <head> so the page does not
+   flash; here we update the icon and handle the click. */
 function applicaTema(tema) {
   const scuro = tema === "scuro";
   document.documentElement.setAttribute("data-theme", scuro ? "scuro" : "chiaro");
@@ -168,9 +168,9 @@ function vaiA(vista) {
   if (b) b.click();
 }
 
-// Ogni avviso ha una X a destra per nasconderlo: compaiono all'apertura, poi
-// l'utente li chiude quando li ha letti. Ricompaiono al prossimo avvio se la
-// situazione che segnalano e' ancora in piedi.
+// Every notice has an X on the right to dismiss it: they appear on opening and
+// the user closes them once read. They come back on the next run if whatever
+// they report is still true.
 const avviso = (titolo, corpo) =>
   `<div class="avviso">${icona("avviso")}<div><strong>${titolo}</strong>${corpo}</div>
     <button class="chiudi-avviso" title="Nascondi" aria-label="Nascondi"
@@ -178,27 +178,27 @@ const avviso = (titolo, corpo) =>
 
 function mostraAvvisi() {
   const avvisi = [];
-  // Prima di tutto: senza questa scelta l'app non sa da dove spedire.
-  if (!stato.mail_configurata) {
+  // First of all: without this choice the app does not know where to send from.
+  if (!stato.mail_configured) {
     avvisi.push(avviso("L'invio delle email non e' ancora configurato",
       ` L'app non sa da quale programma di posta far partire le notifiche. <a href="#" onclick="apriConfigurazioneMail();return false">Configuralo adesso</a>.`));
   }
-  if (stato.chiuse_all_avvio?.length) {
-    avvisi.push(avviso(`Chiuse automaticamente ${stato.chiuse_all_avvio.length} sessioni passate`,
+  if (stato.closed_at_startup?.length) {
+    avvisi.push(avviso(`Chiuse automaticamente ${stato.closed_at_startup.length} sessioni passate`,
       ` Segnate svolte con esito OK. Correggile dall'agenda se qualcuna non si e' tenuta.`));
   }
-  if (stato.persone_senza_email) {
-    const q = stato.persone_senza_email;
+  if (stato.people_without_email) {
+    const q = stato.people_without_email;
     avvisi.push(avviso(q === 1 ? "Una persona non ha l'email" : `${q} persone non hanno l'email`,
       ` Senza email non ricevono le notifiche. <a href="#" onclick="vaiA('persone');return false">Completa la rubrica</a>.`));
   }
-  // Con l'invio spento l'app funziona ma non avvisa nessuno, e senza questo
-  // riquadro la cosa si scoprirebbe solo aprendo il registro delle mail.
-  if (!stato.invio_email_automatico) {
+  // With delivery off the app works but warns nobody, and without this notice
+  // that would only be discovered by opening the delivery log.
+  if (!stato.automatic_email) {
     avvisi.push(avviso("L'invio automatico delle email e' spento",
       ` Le notifiche vengono preparate e registrate, ma non partono. <a href="#" onclick="vaiA('mail');return false">Accendilo da Mail inviate</a>.`));
   }
-  if (stato.canale_mail === "file") {
+  if (stato.mail_channel === "file") {
     avvisi.push(avviso("Su questo computer non c'e' un client di posta",
       ` Senza Outlook ogni notifica viene salvata come file invece di essere spedita.`));
   }
@@ -220,7 +220,7 @@ function disegna() {
 function vistaAgenda() {
   const oggi = iso(new Date());
   const perGiorno = {};
-  piano.sessioni.forEach((s) => (perGiorno[s.data] ??= []).push(s));
+  piano.sessions.forEach((s) => (perGiorno[s.data] ??= []).push(s));
 
   const disegnaGiorno = (data) => {
     const righe = perGiorno[data].map((s) => `
@@ -244,8 +244,8 @@ function vistaAgenda() {
       <h3>${dataEstesa(data)}</h3>${righe}</div>`;
   };
 
-  // I giorni passati stanno sotto, richiusi: col tempo diventano la maggior
-  // parte dell'agenda e coprirebbero quello che deve ancora succedere.
+  // Past days sit below, folded away: over time they become most of the agenda
+  // and would bury what is still to come.
   const date = Object.keys(perGiorno).sort();
   const passate = date.filter((d) => d < oggi);
   const prossime = date.filter((d) => d >= oggi);
@@ -257,9 +257,9 @@ function vistaAgenda() {
        </details>`
     : "") + prossime.map(disegnaGiorno).join("");
 
-  // Legenda: le aree effettivamente presenti nel piano, col loro colore.
+  // Legend: the areas actually present in this plan, with their colour.
   const areeUsate = {};
-  piano.sessioni.forEach((s) => { if (s.area) areeUsate[s.area] = s.colore_area; });
+  piano.sessions.forEach((s) => { if (s.area) areeUsate[s.area] = s.colore_area; });
   const legenda = Object.entries(areeUsate).sort()
     .map(([a, c]) => `<span><i style="background:${c}"></i>${esc(a)}</span>`).join("");
 
@@ -271,7 +271,7 @@ function vistaAgenda() {
     ${giorni || '<p class="vuoto">Nessuna sessione. Creane una.</p>'}`;
 }
 
-/* ---------- Calendario settimanale ---------- */
+/* ---------- Week calendar ---------- */
 
 function vistaSettimana() {
   const giorniSettimana = [...Array(7)].map((_, i) => {
@@ -279,8 +279,8 @@ function vistaSettimana() {
     d.setDate(d.getDate() + i);
     return d;
   });
-  // il fine settimana compare solo se ci sono sessioni
-  const conSessioni = new Set(piano.sessioni.map((s) => s.data));
+  // the weekend only shows up when it holds sessions
+  const conSessioni = new Set(piano.sessions.map((s) => s.data));
   const visibili = giorniSettimana.filter((d, i) => i < 5 || conSessioni.has(iso(d)));
   const oggi = iso(new Date());
 
@@ -294,11 +294,11 @@ function vistaSettimana() {
     `<span style="top:${i * ALTEZZA_ORA}px">${String(ORA_PRIMA + i).padStart(2, "0")}:00</span>`).join("");
 
   const colonne = visibili.map((d) => {
-    const delGiorno = piano.sessioni.filter((s) => s.data === iso(d));
+    const delGiorno = piano.sessions.filter((s) => s.data === iso(d));
     const blocchi = delGiorno.map((s, indice) => {
       const cima = ((minuti(s.ora_inizio) - ORA_PRIMA * 60) / 60) * ALTEZZA_ORA;
       const alto = Math.max(((minuti(s.ora_fine) - minuti(s.ora_inizio)) / 60) * ALTEZZA_ORA, 20);
-      // sessioni contemporanee affiancate, invece che sovrapposte
+      // overlapping sessions side by side rather than on top of each other
       const insieme = delGiorno.filter((a) =>
         minuti(a.ora_inizio) < minuti(s.ora_fine) && minuti(a.ora_fine) > minuti(s.ora_inizio));
       const quante = insieme.length, quale = insieme.indexOf(s);
@@ -349,10 +349,10 @@ function vaiAOggi() {
   vistaSettimana();
 }
 
-/* ---------- Piano ISO ---------- */
+/* ---------- Training plan ---------- */
 
 function vistaPiano() {
-  const righe = piano.moduli.map((m) => `
+  const righe = piano.modules.map((m) => `
     <tr>
       <td>${m.codice}</td><td>${esc(m.area)}</td><td>${esc(m.titolo)}</td>
       <td>${esc(m.modalita) ?? ""}</td><td>${esc(m.tutor_referente) ?? ""}</td>
@@ -380,7 +380,7 @@ function vistaPiano() {
       <p class="nota">Le colonne bianche si calcolano dalle sessioni. Quelle gialle sono del responsabile qualita'.</p>
       <label class="codice-modulo" title="Compare in alto a sinistra sul modulo stampato">
         Codice del modulo
-        <input id="c-codice-modulo" value="${esc(stato.codice_modulo || "")}"
+        <input id="c-codice-modulo" value="${esc(stato.form_code || "")}"
           onchange="salvaCodiceModulo(this.value)">
       </label>
       <button class="azione primario" onclick="stampaPiano()">${icona("stampa")}Stampa il modulo firmabile</button>
@@ -395,28 +395,28 @@ function vistaPiano() {
 }
 
 async function salvaModulo(id, campo, valore) {
-  await api(`/moduli/${id}`, { method: "PATCH", body: JSON.stringify({ [campo]: valore || null }) });
+  await api(`/modules/${id}`, { method: "PATCH", body: JSON.stringify({ [campo]: valore || null }) });
 }
 
-/* Il codice del modulo e' quello del sistema qualita' dell'azienda: cambia da
-   una all'altra, quindi sta nell'archivio e non nel programma. */
+/* The form code belongs to the company's quality system: it differs from one to
+   the next, so it lives in the archive and not in the program. */
 async function salvaCodiceModulo(valore) {
   const codice = valore.trim();
   if (!codice) return;
-  await api("/documento/codice", {
+  await api("/form-code", {
     method: "PUT",
     body: JSON.stringify({ codice }),
   });
-  stato.codice_modulo = codice;
+  stato.form_code = codice;
 }
 
 async function stampaPiano() {
-  const r = await api(`/piano/${piano.testata.id}/stampa`, { method: "POST" });
+  const r = await api(`/plan/${piano.header.id}/stampa`, { method: "POST" });
   el("avvisi").insertAdjacentHTML("afterbegin",
     `<div class="avviso">${icona("avviso")}<div><strong>Modulo PDF generato</strong>${esc(r.percorso)}</div>`);
 }
 
-/* ---------- Catalogo moduli ---------- */
+/* ---------- Module catalogue ---------- */
 
 function vistaModuli() {
   const opzioniTutor = (scelto) => persone.filter((p) => !p.e_risorsa).map((p) =>
@@ -454,7 +454,7 @@ function vistaModuli() {
 async function salvaCatalogo(codice, campo, valore) {
   const m = catalogo.find((x) => x.codice === codice);
   m[campo] = campo.endsWith("_id") ? (valore ? Number(valore) : null) : valore;
-  await api(`/catalogo/${codice}`, {
+  await api(`/catalogue/${codice}`, {
     method: "PATCH",
     body: JSON.stringify({
       codice, area: m.area, titolo: m.titolo,
@@ -466,15 +466,15 @@ async function salvaCatalogo(codice, campo, valore) {
 
 async function eliminaModulo(codice) {
   if (!confirm(`Togliere ${codice} dal catalogo? I piani gia' creati non cambiano.`)) return;
-  await api(`/catalogo/${codice}`, { method: "DELETE" });
-  catalogo = await api("/catalogo");
+  await api(`/catalogue/${codice}`, { method: "DELETE" });
+  catalogo = await api("/catalogue");
   vistaModuli();
 }
 
 async function cambiaColoreArea(nome, colore) {
-  await api("/aree", { method: "PUT", body: JSON.stringify({ nome, colore }) });
+  await api("/areas", { method: "PUT", body: JSON.stringify({ nome, colore }) });
   await caricaAree();
-  catalogo = await api("/catalogo");
+  catalogo = await api("/catalogue");
   const id = Number(el("scelta-piano").value);
   if (piano && id) await caricaPiano(id);   // aggiorna i colori nelle sessioni
   disegna();
@@ -512,7 +512,7 @@ function apriNuovoModulo() {
       ${persone.filter((p) => !p.e_risorsa).map((p) =>
         `<option value="${p.id}">${esc(p.cognome)} ${esc(p.nome)}</option>`).join("")}</select></div>`;
 
-  // Se si digita un'area gia' esistente, il colore si allinea al suo.
+  // Typing an existing area name aligns the colour with that area's.
   el("c-area").addEventListener("input", () => {
     const a = listaAree.find((x) => x.nome.toLowerCase() === el("c-area").value.trim().toLowerCase());
     if (a) el("c-colore").value = a.colore;
@@ -520,7 +520,7 @@ function apriNuovoModulo() {
 
   el("finestra-conferma").onclick = async () => {
     try {
-      await api("/catalogo", {
+      await api("/catalogue", {
         method: "POST",
         body: JSON.stringify({
           codice: el("c-codice").value.trim(),
@@ -536,14 +536,14 @@ function apriNuovoModulo() {
       return;
     }
     el("finestra").close();
-    catalogo = await api("/catalogo");
+    catalogo = await api("/catalogue");
     await caricaAree();
     vistaModuli();
   };
   el("finestra").showModal();
 }
 
-/* ---------- Persone ---------- */
+/* ---------- People ---------- */
 
 function vistaPersone() {
   const righe = persone.map((p) => `
@@ -583,12 +583,12 @@ function apriNuovaPersona() {
 async function creaPersona() {
   const nome = el("np-nome").value.trim(), cognome = el("np-cognome").value.trim();
   if (!nome || !cognome) { alert("Nome e cognome sono obbligatori."); return; }
-  await api("/persone", {
+  await api("/people", {
     method: "POST",
     body: JSON.stringify({ nome, cognome, email: el("np-email").value.trim() || null }),
   });
-  persone = await api("/persone");
-  stato = await api("/stato");
+  persone = await api("/people");
+  stato = await api("/state");
   el("finestra").close();
   mostraAvvisi();
   if (vistaCorrente === "persone") vistaPersone();
@@ -597,22 +597,22 @@ async function creaPersona() {
 async function salvaPersona(id, campo, valore) {
   const p = persone.find((x) => x.id === id);
   p[campo] = valore;
-  await api(`/persone/${id}`, {
+  await api(`/people/${id}`, {
     method: "PATCH",
     body: JSON.stringify({ nome: p.nome, cognome: p.cognome,
                            email: p.email || null, reparto: p.reparto || null }),
   });
-  stato = await api("/stato");
+  stato = await api("/state");
   mostraAvvisi();
 }
 
 /* ---------- Mail ---------- */
 
-/* ---------- Configurazione dell'invio email ----------
+/* ---------- Mail delivery setup ----------
 
-   Il programma di posta non si indovina: su un computer possono esserci
-   Outlook e Mail, uno configurato e l'altro no, e da fuori non si distinguono.
-   Quindi al primo avvio si chiede, si prova davvero, e poi si ricorda. */
+   The mail program is not guessed: a computer can hold both Outlook and Mail,
+   one configured and the other empty, and from the outside they look alike. So
+   on first run we ask, we really test, and then we remember. */
 
 async function apriConfigurazioneMail() {
   el("finestra-titolo").textContent = "Da dove partono le email";
@@ -624,7 +624,7 @@ async function apriConfigurazioneMail() {
 
   let dati;
   try {
-    dati = await api("/mail/canali");
+    dati = await api("/mail/channels");
   } catch (errore) {
     el("finestra-contenuto").innerHTML =
       `<p class="mancante">Non riesco a leggere i programmi di posta: ${esc(errore.message)}</p>`;
@@ -686,7 +686,7 @@ function disegnaConfigurazioneMail(dati) {
     }
     el("esito-prova").innerHTML = `<p class="nota">Invio in corso, attendo che parta davvero...</p>`;
     try {
-      const esito = await api("/mail/prova", {
+      const esito = await api("/mail/test", {
         method: "POST",
         body: JSON.stringify({
           destinatario,
@@ -708,7 +708,7 @@ function disegnaConfigurazioneMail(dati) {
       alert("Scegli da quale programma partono le email.");
       return;
     }
-    await api("/mail/canale", {
+    await api("/mail/channel", {
       method: "PUT",
       body: JSON.stringify({
         canale: scelto.value,
@@ -716,7 +716,7 @@ function disegnaConfigurazioneMail(dati) {
       }),
     });
     el("finestra").close();
-    stato = await api("/stato");
+    stato = await api("/state");
     mostraAvvisi();
     if (vistaCorrente === "mail") await vistaMail();
   };
@@ -724,9 +724,9 @@ function disegnaConfigurazioneMail(dati) {
 
 async function vistaMail() {
   const [registro, impostazioni] = await Promise.all([
-    api("/mail"), api("/mail/impostazioni"),
+    api("/mail"), api("/mail/settings"),
   ]);
-  stato.invio_email_automatico = impostazioni.invio_email_automatico;
+  stato.automatic_email = impostazioni.invio_email_automatico;
   const attivo = impostazioni.invio_email_automatico;
   const righe = registro.map((m) => {
     const statoMail = STATI_MAIL[m.esito] || m.esito;
@@ -752,8 +752,8 @@ async function vistaMail() {
         <p class="nota">${attivo
           ? "Le notifiche vengono consegnate tramite il programma di posta configurato."
           : "Le notifiche vengono registrate ma non inviate."}
-          ${stato.mail_configurata
-            ? `Partono da <b>${esc(stato.mittente_mail || stato.canale_mail)}</b>.`
+          ${stato.mail_configured
+            ? `Partono da <b>${esc(stato.mail_sender || stato.mail_channel)}</b>.`
             : "<b>Programma di posta non ancora scelto.</b>"}
           <a href="#" onclick="apriConfigurazioneMail();return false">Configura l'invio</a>.</p>
       </div>
@@ -775,19 +775,19 @@ async function vistaMail() {
     const controllo = evento.target;
     controllo.disabled = true;
     try {
-      const confermato = await api("/mail/impostazioni", {
+      const confermato = await api("/mail/settings", {
         method: "PUT",
         body: JSON.stringify({ invio_email_automatico: valore }),
       });
       const statoConfermato = Boolean(confermato.invio_email_automatico);
-      stato.invio_email_automatico = statoConfermato;
+      stato.automatic_email = statoConfermato;
       controllo.checked = statoConfermato;
       mostraAvvisi();   // l'avviso in cima segue il toggle
     } catch (errore) {
       try {
-        const reale = await api("/mail/impostazioni");
-        stato.invio_email_automatico = Boolean(reale.invio_email_automatico);
-        controllo.checked = stato.invio_email_automatico;
+        const reale = await api("/mail/settings");
+        stato.automatic_email = Boolean(reale.invio_email_automatico);
+        controllo.checked = stato.automatic_email;
         mostraAvvisi();
       } catch (_) {
         controllo.checked = !valore;
@@ -812,8 +812,8 @@ async function vistaMail() {
   el("riprova-tutte")?.addEventListener("click", riprovaTutte);
 }
 
-/* Il testo della notifica com'e' stato spedito: serve a controllare cosa e'
-   arrivato davvero alle persone, non solo che sia partito qualcosa. */
+/* The notification text as it was sent: it lets you check what actually reached
+   people, not merely that something went out. */
 function mostraMail(id) {
   const voce = registroMail.find((m) => m.id === id);
   if (!voce) return;
@@ -831,7 +831,7 @@ function mostraMail(id) {
     <div class="campo"><label>Testo</label><pre class="corpo-mail">${esc(voce.corpo)}</pre></div>
     ${voce.errore ? `<div class="campo"><label>Errore</label>
         <p class="nota mancante">${esc(voce.errore)}</p></div>` : ""}`;
-  // qui non si modifica niente: il pulsante di conferma serve solo a chiudere
+  // nothing is edited here: the confirm button only closes the dialog
   el("finestra-conferma").textContent = "Chiudi";
   el("finestra-conferma").onclick = () => {
     el("finestra-conferma").textContent = "Salva";
@@ -845,7 +845,7 @@ async function riprovaTutte() {
   bottone.disabled = true;
   bottone.textContent = "Invio in corso...";
   try {
-    const esito = await api("/mail/riprova-tutte", { method: "POST" });
+    const esito = await api("/mail/retry-all", { method: "POST" });
     const parti = [];
     if (esito.inviate) parti.push(`${esito.inviate} inviate`);
     if (esito.errori) parti.push(`${esito.errori} non partite`);
@@ -861,7 +861,7 @@ async function riprovaMail(id, bottone) {
   if (bottone.disabled) return;
   bottone.disabled = true;
   try {
-    const risposta = await api(`/mail/${id}/riprova`, { method: "POST" });
+    const risposta = await api(`/mail/${id}/retry`, { method: "POST" });
     if (risposta.esito === "invio_disattivato") {
       alert("Invio email disattivato. Attivalo per poter riprovare.");
     } else if (risposta.esito === "errore") {
@@ -921,7 +921,7 @@ function apriNuovaRisorsa() {
   el("finestra-conferma").onclick = async () => {
     const nome = el("r-nome").value.trim(), cognome = el("r-cognome").value.trim();
     if (!nome || !cognome) { alert("Nome e cognome sono obbligatori."); return; }
-    const r = await api("/risorse", {
+    const r = await api("/trainees", {
       method: "POST",
       body: JSON.stringify({
         nome, cognome,
@@ -945,7 +945,7 @@ function apriNuovaRisorsa() {
 /* ---------- Finestra sessione ---------- */
 
 function campiSessione(s = {}) {
-  const opzioniModuli = piano.moduli.map((m) =>
+  const opzioniModuli = piano.modules.map((m) =>
     `<option value="${m.id}" ${m.id === s.piano_modulo_id ? "selected" : ""}>${m.codice} – ${esc(m.titolo)}</option>`).join("");
   const opzioniTutor = persone.filter((p) => !p.e_risorsa).map((p) => {
     const scelto = (s.tutor ?? []).some((t) => t.id === p.id);
@@ -981,16 +981,16 @@ function leggiCampi() {
   };
 }
 
-/** Avverte se l'orario si accavalla, senza impedire: a volte e' voluto. */
+/** Warns about a clash without preventing it: sometimes it is intended. */
 async function controllaConflitti(escludi = null) {
   const c = leggiCampi();
   if (!c.data || !c.ora_inizio || !c.ora_fine) return [];
   const q = new URLSearchParams({
-    piano_id: piano.testata.id, data: c.data,
+    piano_id: piano.header.id, data: c.data,
     ora_inizio: c.ora_inizio, ora_fine: c.ora_fine, tutor: c.tutor.join(","),
   });
   if (escludi) q.set("escludi", escludi);
-  const conflitti = await api(`/conflitti?${q}`);
+  const conflitti = await api(`/clashes?${q}`);
   el("c-conflitti").innerHTML = conflitti.length ? `
     <div class="conflitto">${icona("avviso")}<div><strong>${conflitti.length === 1 ? "Si accavalla con un altro impegno"
       : `Si accavalla con ${conflitti.length} impegni`}</strong>
@@ -1012,9 +1012,9 @@ function apriNuova() {
   el("finestra-contenuto").innerHTML = campiSessione();
   collegaControlli();
   el("finestra-conferma").onclick = async () => {
-    const risposta = await api("/sessioni", {
+    const risposta = await api("/sessions", {
       method: "POST",
-      body: JSON.stringify({ piano_id: piano.testata.id, stato: "Pianificata", ...leggiCampi() }),
+      body: JSON.stringify({ piano_id: piano.header.id, stato: "Pianificata", ...leggiCampi() }),
     });
     el("finestra").close();
     await ricarica(risposta.mail, "Sessione creata");
@@ -1023,7 +1023,7 @@ function apriNuova() {
 }
 
 function apriModifica(id) {
-  const s = piano.sessioni.find((x) => x.id === id);
+  const s = piano.sessions.find((x) => x.id === id);
   el("finestra-titolo").textContent = "Sposta sessione";
   el("finestra-contenuto").innerHTML = campiSessione(s) + `
     <div class="campo"><label>Stato</label><select id="c-stato">
@@ -1032,7 +1032,7 @@ function apriModifica(id) {
       Cambiando data od orario parte una mail a tutor e risorsa con il vecchio e il nuovo appuntamento.</p>`;
   collegaControlli(id);
   el("finestra-conferma").onclick = async () => {
-    const risposta = await api(`/sessioni/${id}`, {
+    const risposta = await api(`/sessions/${id}`, {
       method: "PATCH",
       body: JSON.stringify({ ...leggiCampi(), stato: el("c-stato").value }),
     });
@@ -1043,20 +1043,20 @@ function apriModifica(id) {
 }
 
 async function segnaSvolta(id) {
-  await api(`/sessioni/${id}`, { method: "PATCH", body: JSON.stringify({ stato: "Svolta" }) });
+  await api(`/sessions/${id}`, { method: "PATCH", body: JSON.stringify({ stato: "Svolta" }) });
   await ricarica(null, "Segnata come svolta");
 }
 
 async function annulla(id) {
   if (!confirm("Annullare la sessione? Parte una mail a tutor e risorsa.")) return;
-  const risposta = await api(`/sessioni/${id}`, { method: "DELETE" });
+  const risposta = await api(`/sessions/${id}`, { method: "DELETE" });
   await ricarica(risposta.mail, "Sessione annullata");
 }
 
 async function ricarica(mail, messaggio) {
-  await caricaPiano(piano.testata.id);
-  stato = await api("/stato");
-  stato.chiuse_all_avvio = [];
+  await caricaPiano(piano.header.id);
+  stato = await api("/state");
+  stato.closed_at_startup = [];
   mostraAvvisi();
   if (mail && mail.senza_email?.length) {
     const parziale = mail.esito === "inviata";

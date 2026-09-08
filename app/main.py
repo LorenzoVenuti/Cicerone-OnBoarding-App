@@ -1,4 +1,9 @@
-"""Server locale dell'applicazione."""
+"""The local server behind the application.
+
+Response keys that mirror database columns keep their Italian names, for the
+same reason the schema does: they are domain identifiers that also travel in the
+data. See the glossary in the README.
+"""
 
 import asyncio
 import os
@@ -13,26 +18,26 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import db, invio, mail, regole, stampa
-from .percorsi import cartella_risorse
+from . import db, delivery, messages, pdf_export, rules
+from .paths import resource_folder
 
-CARTELLA_WEB = cartella_risorse() / "app" / "web"
+WEB_FOLDER = resource_folder() / "app" / "web"
 
-app = FastAPI(title="Piano Formazione")
-conn: sqlite3.Connection = db.inizializza()
+app = FastAPI(title="Cicerone")
+conn: sqlite3.Connection = db.initialise()
 
-# Una copia dell'archivio al giorno: e' l'unica copia dei dati che esista.
-db.copia_giornaliera()
+# One copy of the archive a day: it is the only copy of the data there is.
+db.daily_backup()
 
-# Ogni area ha un colore: le aree senza colore lo ricevono qui, all'avvio.
-regole.assicura_colori_aree(conn)
+# Every area needs a colour: the ones without get theirs here, at start-up.
+rules.ensure_area_colours(conn)
 
-# Chiusura automatica: gira all'avvio, non alle 18 in punto, perche' a
-# quell'ora il PC puo' essere spento.
-_chiuse_all_avvio = [dict(s) for s in regole.chiudi_sessioni_passate(conn)]
+# Automatic closing runs at start-up, not at 18:00 sharp, because at that hour
+# the computer may well be off.
+_closed_at_startup = [dict(s) for s in rules.close_past_sessions(conn)]
 
 
-class SessioneIn(BaseModel):
+class SessionIn(BaseModel):
     piano_id: int
     piano_modulo_id: int | None = None
     data: str
@@ -44,7 +49,7 @@ class SessioneIn(BaseModel):
     tutor: list[int] = []
 
 
-class SessionePatch(BaseModel):
+class SessionPatch(BaseModel):
     piano_modulo_id: int | None = None
     data: str | None = None
     ora_inizio: str | None = None
@@ -56,7 +61,7 @@ class SessionePatch(BaseModel):
     tutor: list[int] | None = None
 
 
-class ModuloPatch(BaseModel):
+class ModulePatch(BaseModel):
     applicabile: str | None = None
     modalita: str | None = None
     tutor_referente_id: int | None = None
@@ -67,7 +72,7 @@ class ModuloPatch(BaseModel):
     esito: str | None = None
 
 
-class RisorsaIn(BaseModel):
+class TraineeIn(BaseModel):
     nome: str
     cognome: str
     email: str | None = None
@@ -79,7 +84,7 @@ class RisorsaIn(BaseModel):
     motivo: str = "Nuova funzione"
 
 
-class ModuloCatalogoIn(BaseModel):
+class CatalogueModuleIn(BaseModel):
     codice: str
     area: str
     titolo: str
@@ -93,38 +98,38 @@ class AreaIn(BaseModel):
     colore: str
 
 
-class PersonaIn(BaseModel):
+class PersonIn(BaseModel):
     nome: str
     cognome: str
     email: str | None = None
     reparto: str | None = None
 
 
-class ImpostazioneMailIn(BaseModel):
+class MailSettingIn(BaseModel):
     invio_email_automatico: bool
 
 
-class CanaleMailIn(BaseModel):
+class MailChannelIn(BaseModel):
     canale: str
     mittente: str | None = None
 
 
-class CodiceModuloIn(BaseModel):
+class FormCodeIn(BaseModel):
     codice: str
 
 
-class ProvaMailIn(BaseModel):
+class MailTestIn(BaseModel):
     destinatario: str
     canale: str | None = None
     mittente: str | None = None
 
 
-def _adesso() -> str:
+def _now() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
-def _sessioni_del_piano(piano_id: int) -> list[dict]:
-    righe = conn.execute(
+def _plan_sessions(plan_id: int) -> list[dict]:
+    rows = conn.execute(
         """
         SELECT s.*, pm.codice, pm.titolo AS modulo_titolo, pm.area,
                a.colore AS colore_area
@@ -134,67 +139,67 @@ def _sessioni_del_piano(piano_id: int) -> list[dict]:
         WHERE s.piano_id = ?
         ORDER BY s.data, s.ora_inizio
         """,
-        (piano_id,),
+        (plan_id,),
     ).fetchall()
 
-    tutor_per_sessione: dict[int, list[dict]] = {}
-    for riga in conn.execute(
+    tutors_by_session: dict[int, list[dict]] = {}
+    for row in conn.execute(
         """
         SELECT st.sessione_id, p.id, p.nome, p.cognome, p.email
         FROM sessione_tutor st JOIN persona p ON p.id = st.persona_id
         JOIN sessione s ON s.id = st.sessione_id
         WHERE s.piano_id = ?
         """,
-        (piano_id,),
+        (plan_id,),
     ).fetchall():
-        tutor_per_sessione.setdefault(riga["sessione_id"], []).append(
-            {"id": riga["id"], "nome": f"{riga['nome']} {riga['cognome']}", "email": riga["email"]}
+        tutors_by_session.setdefault(row["sessione_id"], []).append(
+            {"id": row["id"], "nome": f"{row['nome']} {row['cognome']}", "email": row["email"]}
         )
 
-    sessioni = []
-    for riga in righe:
-        voce = dict(riga)
-        voce["tutor"] = tutor_per_sessione.get(riga["id"], [])
-        voce["durata"] = regole.durata_ore(riga["ora_inizio"], riga["ora_fine"])
-        voce["colore"] = regole.COLORI_STATO.get(riga["stato"], "#FFFFFF")
-        voce["colore_area"] = riga["colore_area"] or regole.COLORE_AREA_NEUTRO
-        sessioni.append(voce)
-    return sessioni
+    sessions = []
+    for row in rows:
+        entry = dict(row)
+        entry["tutor"] = tutors_by_session.get(row["id"], [])
+        entry["durata"] = rules.duration_hours(row["ora_inizio"], row["ora_fine"])
+        entry["colore"] = rules.STATE_COLOURS.get(row["stato"], "#FFFFFF")
+        entry["colore_area"] = row["colore_area"] or rules.NEUTRAL_AREA_COLOUR
+        sessions.append(entry)
+    return sessions
 
 
-def _imposta_tutor(sessione_id: int, tutor: list[int]) -> None:
-    conn.execute("DELETE FROM sessione_tutor WHERE sessione_id = ?", (sessione_id,))
+def _set_tutors(session_id: int, tutors: list[int]) -> None:
+    conn.execute("DELETE FROM sessione_tutor WHERE sessione_id = ?", (session_id,))
     conn.executemany(
         "INSERT OR IGNORE INTO sessione_tutor (sessione_id, persona_id) VALUES (?, ?)",
-        [(sessione_id, t) for t in tutor],
+        [(session_id, t) for t in tutors],
     )
 
 
-def _upsert_area(nome: str, colore: str) -> None:
-    """Fissa il colore di un'area, creandola se non esiste ancora."""
+def _upsert_area(name: str, colour: str) -> None:
+    """Sets an area's colour, creating the area when it does not exist yet."""
     conn.execute(
         """
         INSERT INTO area (nome, colore, ordine)
         VALUES (?, ?, COALESCE((SELECT MAX(ordine) + 1 FROM area), 0))
         ON CONFLICT(nome) DO UPDATE SET colore = excluded.colore
         """,
-        (nome, colore),
+        (name, colour),
     )
 
 
-async def _notifica(sessione_id: int, tipo: str, precedente: dict | None = None) -> dict:
-    messaggio = mail.componi(
-        conn, sessione_id, tipo, precedente=precedente,
-        # chi organizza l'appuntamento e' l'indirizzo scelto in configurazione
-        organizzatore=db.leggi_impostazione(conn, db.CHIAVE_MITTENTE_MAIL),
+async def _notify(session_id: int, kind: str, previous: dict | None = None) -> dict:
+    message = messages.compose(
+        conn, session_id, kind, previous=previous,
+        # the appointment's organiser is the address chosen during setup
+        organiser=db.read_setting(conn, db.KEY_MAIL_SENDER),
     )
-    esito = await invio.invia_senza_bloccare(conn, messaggio)
-    return {"oggetto": messaggio["oggetto"], **esito}
+    outcome = await delivery.send_without_blocking(conn, message)
+    return {"oggetto": message["oggetto"], **outcome}
 
 
-@app.get("/api/stato")
-async def stato():
-    piani = conn.execute(
+@app.get("/api/state")
+async def state():
+    plans = conn.execute(
         """
         SELECT p.id, p.creato_il, r.reparto, r.mansione, r.data_inizio,
                pe.nome || ' ' || pe.cognome AS risorsa
@@ -203,27 +208,28 @@ async def stato():
         ORDER BY r.data_inizio DESC
         """
     ).fetchall()
-    senza_email = conn.execute(
+    without_email = conn.execute(
         "SELECT COUNT(*) c FROM persona WHERE email IS NULL OR email = ''"
     ).fetchone()["c"]
     return {
-        "piani": [dict(p) for p in piani],
-        "chiuse_all_avvio": _chiuse_all_avvio,
-        "persone_senza_email": senza_email,
-        "canale_mail": invio.scegli_canale(conn).nome,
-        "invio_email_automatico": db.invio_email_automatico(conn),
-        # Finche' e' falso l'app non sa da dove spedire: l'interfaccia lo chiede.
-        "mail_configurata": bool(db.leggi_impostazione(conn, db.CHIAVE_CANALE_MAIL)),
-        "mittente_mail": db.leggi_impostazione(conn, db.CHIAVE_MITTENTE_MAIL),
-        "codice_modulo": db.leggi_impostazione(
-            conn, db.CHIAVE_CODICE_MODULO, db.CODICE_MODULO_PREDEFINITO
+        "plans": [dict(p) for p in plans],
+        "closed_at_startup": _closed_at_startup,
+        "people_without_email": without_email,
+        "mail_channel": delivery.choose_channel(conn).name,
+        "automatic_email": db.automatic_email_delivery(conn),
+        # While this is false the app does not know where to send from: the
+        # interface asks.
+        "mail_configured": bool(db.read_setting(conn, db.KEY_MAIL_CHANNEL)),
+        "mail_sender": db.read_setting(conn, db.KEY_MAIL_SENDER),
+        "form_code": db.read_setting(
+            conn, db.KEY_FORM_CODE, db.DEFAULT_FORM_CODE
         ),
     }
 
 
-@app.get("/api/piano/{piano_id}")
-async def piano(piano_id: int):
-    testata = conn.execute(
+@app.get("/api/plan/{plan_id}")
+async def plan(plan_id: int):
+    header = conn.execute(
         """
         SELECT p.id, r.reparto, r.mansione, r.data_inizio, r.motivo,
                pe.nome || ' ' || pe.cognome AS risorsa,
@@ -235,63 +241,63 @@ async def piano(piano_id: int):
         LEFT JOIN persona tut  ON tut.id  = r.tutor_principale_id
         WHERE p.id = ?
         """,
-        (piano_id,),
+        (plan_id,),
     ).fetchone()
-    if testata is None:
+    if header is None:
         raise HTTPException(404, "piano inesistente")
 
-    colori_area = {
+    area_colours = {
         r["nome"]: r["colore"] for r in conn.execute("SELECT nome, colore FROM area")
     }
-    moduli = regole.riepilogo_moduli(conn, piano_id)
-    for modulo in moduli:
-        modulo["colore"] = regole.COLORI_STATO.get(modulo["stato"], "#FFFFFF")
-        modulo["colore_area"] = colori_area.get(modulo["area"], regole.COLORE_AREA_NEUTRO)
+    modules = rules.module_summary(conn, plan_id)
+    for module in modules:
+        module["colore"] = rules.STATE_COLOURS.get(module["stato"], "#FFFFFF")
+        module["colore_area"] = area_colours.get(module["area"], rules.NEUTRAL_AREA_COLOUR)
     return {
-        "testata": dict(testata),
-        "moduli": moduli,
-        "sessioni": _sessioni_del_piano(piano_id),
+        "header": dict(header),
+        "modules": modules,
+        "sessions": _plan_sessions(plan_id),
     }
 
 
-@app.post("/api/risorse")
-async def crea_risorsa(dati: RisorsaIn):
-    """Crea la persona, la risorsa e il suo piano, copiando i moduli dal catalogo.
+@app.post("/api/trainees")
+async def create_trainee(data: TraineeIn):
+    """Creates the person, the trainee and their plan, copying the catalogue.
 
-    E' l'unico modo per far partire un percorso senza passare da un Excel e da
-    Python, che sul computer di chi usa il programma non ci sono.
+    It is the only way to start a path without going through a spreadsheet and
+    Python, neither of which exist on the computer where the program runs.
     """
-    adesso = _adesso()
-    persona = conn.execute(
+    now = _now()
+    person = conn.execute(
         "SELECT id FROM persona WHERE nome = ? AND cognome = ?",
-        (dati.nome, dati.cognome),
+        (data.nome, data.cognome),
     ).fetchone()
-    if persona:
-        persona_id = persona["id"]
-        if dati.email:
-            conn.execute("UPDATE persona SET email = ? WHERE id = ?", (dati.email, persona_id))
+    if person:
+        person_id = person["id"]
+        if data.email:
+            conn.execute("UPDATE persona SET email = ? WHERE id = ?", (data.email, person_id))
     else:
-        persona_id = conn.execute(
+        person_id = conn.execute(
             "INSERT INTO persona (nome, cognome, email, reparto) VALUES (?, ?, ?, ?)",
-            (dati.nome, dati.cognome, dati.email, dati.reparto),
+            (data.nome, data.cognome, data.email, data.reparto),
         ).lastrowid
 
-    risorsa_id = conn.execute(
+    trainee_id = conn.execute(
         """
         INSERT INTO risorsa (persona_id, reparto, mansione, responsabile_id,
                              tutor_principale_id, data_inizio, motivo)
         VALUES (?, ?, ?, ?, ?, ?, ?)
         """,
-        (persona_id, dati.reparto, dati.mansione, dati.responsabile_id,
-         dati.tutor_principale_id, dati.data_inizio, dati.motivo),
+        (person_id, data.reparto, data.mansione, data.responsabile_id,
+         data.tutor_principale_id, data.data_inizio, data.motivo),
     ).lastrowid
 
-    piano_id = conn.execute(
-        "INSERT INTO piano (risorsa_id, creato_il) VALUES (?, ?)", (risorsa_id, adesso)
+    plan_id = conn.execute(
+        "INSERT INTO piano (risorsa_id, creato_il) VALUES (?, ?)", (trainee_id, now)
     ).lastrowid
 
-    catalogo = conn.execute("SELECT * FROM modulo_catalogo ORDER BY ordine").fetchall()
-    for modulo in catalogo:
+    catalogue = conn.execute("SELECT * FROM modulo_catalogo ORDER BY ordine").fetchall()
+    for module in catalogue:
         conn.execute(
             """
             INSERT INTO piano_modulo
@@ -299,17 +305,17 @@ async def crea_risorsa(dati: RisorsaIn):
                  tutor_referente_id, ordine)
             VALUES (?, ?, ?, ?, 'SI', ?, ?, ?)
             """,
-            (piano_id, modulo["codice"], modulo["area"], modulo["titolo"],
-             modulo["modalita_default"], modulo["tutor_referente_default_id"],
-             modulo["ordine"]),
+            (plan_id, module["codice"], module["area"], module["titolo"],
+             module["modalita_default"], module["tutor_referente_default_id"],
+             module["ordine"]),
         )
     conn.commit()
-    return {"piano_id": piano_id, "risorsa_id": risorsa_id, "moduli": len(catalogo)}
+    return {"plan_id": plan_id, "trainee_id": trainee_id, "modules": len(catalogue)}
 
 
-@app.get("/api/catalogo")
-async def catalogo():
-    righe = conn.execute(
+@app.get("/api/catalogue")
+async def catalogue():
+    rows = conn.execute(
         """
         SELECT c.*, p.nome || ' ' || p.cognome AS tutor,
                a.colore AS colore,
@@ -320,17 +326,17 @@ async def catalogo():
         ORDER BY c.ordine
         """
     ).fetchall()
-    return [dict(r) for r in righe]
+    return [dict(r) for r in rows]
 
 
-@app.post("/api/catalogo")
-async def crea_modulo_catalogo(dati: ModuloCatalogoIn):
-    esistente = conn.execute(
-        "SELECT 1 FROM modulo_catalogo WHERE codice = ?", (dati.codice,)
+@app.post("/api/catalogue")
+async def create_catalogue_module(data: CatalogueModuleIn):
+    existing = conn.execute(
+        "SELECT 1 FROM modulo_catalogo WHERE codice = ?", (data.codice,)
     ).fetchone()
-    if esistente:
-        raise HTTPException(400, f"il codice {dati.codice} esiste gia'")
-    ordine = conn.execute(
+    if existing:
+        raise HTTPException(400, f"il codice {data.codice} esiste gia'")
+    order = conn.execute(
         "SELECT COALESCE(MAX(ordine), 0) + 1 AS o FROM modulo_catalogo"
     ).fetchone()["o"]
     conn.execute(
@@ -339,317 +345,317 @@ async def crea_modulo_catalogo(dati: ModuloCatalogoIn):
             (codice, area, titolo, modalita_default, tutor_referente_default_id, ordine)
         VALUES (?, ?, ?, ?, ?, ?)
         """,
-        (dati.codice, dati.area, dati.titolo, dati.modalita_default,
-         dati.tutor_referente_default_id, ordine),
+        (data.codice, data.area, data.titolo, data.modalita_default,
+         data.tutor_referente_default_id, order),
     )
-    if dati.colore:
-        _upsert_area(dati.area, dati.colore)
+    if data.colore:
+        _upsert_area(data.area, data.colore)
     else:
-        regole.assicura_colori_aree(conn)  # area nuova senza colore: default
+        rules.ensure_area_colours(conn)  # new area with no colour: use a default
     conn.commit()
-    return {"codice": dati.codice}
+    return {"codice": data.codice}
 
 
-@app.patch("/api/catalogo/{codice}")
-async def modifica_modulo_catalogo(codice: str, dati: ModuloCatalogoIn):
+@app.patch("/api/catalogue/{code}")
+async def update_catalogue_module(code: str, data: CatalogueModuleIn):
     conn.execute(
         """
         UPDATE modulo_catalogo
         SET area = ?, titolo = ?, modalita_default = ?, tutor_referente_default_id = ?
         WHERE codice = ?
         """,
-        (dati.area, dati.titolo, dati.modalita_default,
-         dati.tutor_referente_default_id, codice),
+        (data.area, data.titolo, data.modalita_default,
+         data.tutor_referente_default_id, code),
     )
-    if dati.colore:
-        _upsert_area(dati.area, dati.colore)
+    if data.colore:
+        _upsert_area(data.area, data.colore)
     else:
-        regole.assicura_colori_aree(conn)
+        rules.ensure_area_colours(conn)
     conn.commit()
-    return {"codice": codice}
+    return {"codice": code}
 
 
-@app.delete("/api/catalogo/{codice}")
-async def elimina_modulo_catalogo(codice: str):
-    """Toglie un modulo dal catalogo. I piani gia' creati non cambiano."""
-    conn.execute("DELETE FROM modulo_catalogo WHERE codice = ?", (codice,))
+@app.delete("/api/catalogue/{code}")
+async def delete_catalogue_module(code: str):
+    """Removes a module from the catalogue. Existing plans do not change."""
+    conn.execute("DELETE FROM modulo_catalogo WHERE codice = ?", (code,))
     conn.commit()
-    return {"codice": codice}
+    return {"codice": code}
 
 
-@app.get("/api/aree")
-async def aree():
-    """Aree formative con il loro colore, per la legenda e per l'editor."""
-    righe = conn.execute(
+@app.get("/api/areas")
+async def areas():
+    """Training areas with their colour, for the legend and the editor."""
+    rows = conn.execute(
         "SELECT nome, colore, ordine FROM area ORDER BY ordine, nome"
     ).fetchall()
-    return [dict(r) for r in righe]
+    return [dict(r) for r in rows]
 
 
-@app.put("/api/aree")
-async def salva_area(dati: AreaIn):
-    """Cambia il colore di un'area: si riflette su tutti i suoi moduli."""
-    _upsert_area(dati.nome, dati.colore)
+@app.put("/api/areas")
+async def save_area(data: AreaIn):
+    """Changes an area's colour: it applies to every module in it."""
+    _upsert_area(data.nome, data.colore)
     conn.commit()
-    return {"nome": dati.nome, "colore": dati.colore}
+    return {"nome": data.nome, "colore": data.colore}
 
 
-@app.put("/api/documento/codice")
-async def salva_codice_modulo(dati: CodiceModuloIn):
-    """Il codice del modulo stampato in testa al PDF.
+@app.put("/api/form-code")
+async def save_form_code(data: FormCodeIn):
+    """The form code printed at the top of the PDF.
 
-    Ogni azienda ha il suo, preso dal proprio sistema qualita': sta
-    nell'archivio e non nel codice.
+    Every company has its own, taken from its quality system: it lives in the
+    archive, not in the code.
     """
-    db.salva_impostazione(conn, db.CHIAVE_CODICE_MODULO, dati.codice.strip())
-    return {"codice": dati.codice.strip()}
+    db.save_setting(conn, db.KEY_FORM_CODE, data.codice.strip())
+    return {"codice": data.codice.strip()}
 
 
-@app.post("/api/piano/{piano_id}/stampa")
-async def stampa_piano(piano_id: int):
-    """Genera il PDF del modulo ISO e lo apre col visualizzatore di sistema."""
-    percorso = stampa.genera(conn, piano_id)
+@app.post("/api/plan/{plan_id}/print")
+async def print_plan(plan_id: int):
+    """Generates the PDF form and opens it with the system viewer."""
+    path = pdf_export.generate(conn, plan_id)
     try:
         if sys.platform == "win32":
-            os.startfile(percorso)  # noqa: S606
+            os.startfile(path)  # noqa: S606
         elif sys.platform == "darwin":
-            subprocess.Popen(["open", str(percorso)])
+            subprocess.Popen(["open", str(path)])
         else:
-            subprocess.Popen(["xdg-open", str(percorso)])
+            subprocess.Popen(["xdg-open", str(path)])
     except Exception:
-        pass  # il file resta comunque salvato, il percorso e' nella risposta
-    return {"percorso": str(percorso)}
+        pass  # the file is saved anyway, and its path is in the response
+    return {"percorso": str(path)}
 
 
-@app.get("/api/conflitti")
-async def conflitti(
+@app.get("/api/clashes")
+async def clashes(
     piano_id: int, data: str, ora_inizio: str, ora_fine: str,
     tutor: str = "", escludi: int | None = None,
 ):
-    """Sessioni che si accavallano con quella proposta."""
-    elenco = [int(t) for t in tutor.split(",") if t.strip()]
-    return regole.sovrapposizioni(
-        conn, piano_id, data, ora_inizio, ora_fine, elenco, escludi
+    """Sessions that overlap with the one being proposed."""
+    tutor_ids = [int(t) for t in tutor.split(",") if t.strip()]
+    return rules.overlaps(
+        conn, piano_id, data, ora_inizio, ora_fine, tutor_ids, escludi
     )
 
 
-@app.post("/api/sessioni")
-async def crea_sessione(dati: SessioneIn):
-    adesso = _adesso()
-    sessione_id = conn.execute(
+@app.post("/api/sessions")
+async def create_session(data: SessionIn):
+    now = _now()
+    session_id = conn.execute(
         """
         INSERT INTO sessione (piano_id, piano_modulo_id, data, ora_inizio, ora_fine,
                               dettaglio, stato, note, creata_il, modificata_il)
         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
-        (dati.piano_id, dati.piano_modulo_id, dati.data, dati.ora_inizio, dati.ora_fine,
-         dati.dettaglio, dati.stato, dati.note, adesso, adesso),
+        (data.piano_id, data.piano_modulo_id, data.data, data.ora_inizio, data.ora_fine,
+         data.dettaglio, data.stato, data.note, now, now),
     ).lastrowid
-    _imposta_tutor(sessione_id, dati.tutor)
+    _set_tutors(session_id, data.tutor)
     conn.commit()
-    return {"id": sessione_id, "mail": await _notifica(sessione_id, "nuova")}
+    return {"id": session_id, "mail": await _notify(session_id, "nuova")}
 
 
-@app.patch("/api/sessioni/{sessione_id}")
-async def modifica_sessione(sessione_id: int, dati: SessionePatch):
-    prima = conn.execute("SELECT * FROM sessione WHERE id = ?", (sessione_id,)).fetchone()
-    if prima is None:
+@app.patch("/api/sessions/{session_id}")
+async def update_session(session_id: int, data: SessionPatch):
+    before = conn.execute("SELECT * FROM sessione WHERE id = ?", (session_id,)).fetchone()
+    if before is None:
         raise HTTPException(404, "sessione inesistente")
 
-    campi = dati.model_dump(exclude_none=True)
-    tutor = campi.pop("tutor", None)
+    fields = data.model_dump(exclude_none=True)
+    tutors = fields.pop("tutor", None)
 
-    if campi:
-        assegnazioni = ", ".join(f"{c} = ?" for c in campi)
+    if fields:
+        assignments = ", ".join(f"{c} = ?" for c in fields)
         conn.execute(
-            f"UPDATE sessione SET {assegnazioni}, modificata_il = ? WHERE id = ?",
-            (*campi.values(), _adesso(), sessione_id),
+            f"UPDATE sessione SET {assignments}, modificata_il = ? WHERE id = ?",
+            (*fields.values(), _now(), session_id),
         )
-    if tutor is not None:
-        _imposta_tutor(sessione_id, tutor)
+    if tutors is not None:
+        _set_tutors(session_id, tutors)
     conn.commit()
 
-    # Una modifica esplicita esce dal regime automatico.
-    if campi.get("stato") or campi.get("esito_verifica"):
+    # An explicit edit leaves the automatic regime.
+    if fields.get("stato") or fields.get("esito_verifica"):
         conn.execute(
-            "UPDATE sessione SET chiusa_automaticamente = 0 WHERE id = ?", (sessione_id,)
+            "UPDATE sessione SET chiusa_automaticamente = 0 WHERE id = ?", (session_id,)
         )
         conn.commit()
 
-    spostata = any(
-        campi.get(c) is not None and campi[c] != prima[c]
+    moved = any(
+        fields.get(c) is not None and fields[c] != before[c]
         for c in ("data", "ora_inizio", "ora_fine")
     )
-    risposta = {"id": sessione_id, "spostata": spostata}
-    if spostata:
-        risposta["mail"] = await _notifica(
-            sessione_id,
+    response = {"id": session_id, "spostata": moved}
+    if moved:
+        response["mail"] = await _notify(
+            session_id,
             "spostamento",
-            precedente={
-                "data": prima["data"],
-                "ora_inizio": prima["ora_inizio"],
-                "ora_fine": prima["ora_fine"],
+            previous={
+                "data": before["data"],
+                "ora_inizio": before["ora_inizio"],
+                "ora_fine": before["ora_fine"],
             },
         )
-    elif campi.get("stato") == "Annullata":
-        risposta["mail"] = await _notifica(sessione_id, "annullamento")
-    return risposta
+    elif fields.get("stato") == "Annullata":
+        response["mail"] = await _notify(session_id, "annullamento")
+    return response
 
 
-@app.delete("/api/sessioni/{sessione_id}")
-async def annulla_sessione(sessione_id: int):
-    """Le sessioni non si cancellano: si annullano, e restano nel piano."""
+@app.delete("/api/sessions/{session_id}")
+async def cancel_session(session_id: int):
+    """Sessions are never deleted: they are cancelled, and stay in the plan."""
     conn.execute(
         "UPDATE sessione SET stato = 'Annullata', modificata_il = ? WHERE id = ?",
-        (_adesso(), sessione_id),
+        (_now(), session_id),
     )
     conn.commit()
-    return {"id": sessione_id, "mail": await _notifica(sessione_id, "annullamento")}
+    return {"id": session_id, "mail": await _notify(session_id, "annullamento")}
 
 
-@app.patch("/api/moduli/{modulo_id}")
-async def modifica_modulo(modulo_id: int, dati: ModuloPatch):
-    campi = dati.model_dump(exclude_unset=True)
-    if not campi:
-        return {"id": modulo_id}
-    assegnazioni = ", ".join(f"{c} = ?" for c in campi)
+@app.patch("/api/modules/{module_id}")
+async def update_module(module_id: int, data: ModulePatch):
+    fields = data.model_dump(exclude_unset=True)
+    if not fields:
+        return {"id": module_id}
+    assignments = ", ".join(f"{c} = ?" for c in fields)
     conn.execute(
-        f"UPDATE piano_modulo SET {assegnazioni} WHERE id = ?", (*campi.values(), modulo_id)
+        f"UPDATE piano_modulo SET {assignments} WHERE id = ?", (*fields.values(), module_id)
     )
     conn.commit()
-    return {"id": modulo_id}
+    return {"id": module_id}
 
 
-@app.get("/api/persone")
-async def persone():
-    righe = conn.execute(
+@app.get("/api/people")
+async def people():
+    rows = conn.execute(
         """
         SELECT p.*, EXISTS (SELECT 1 FROM risorsa r WHERE r.persona_id = p.id) AS e_risorsa
         FROM persona p WHERE p.attivo = 1 ORDER BY p.cognome, p.nome
         """
     ).fetchall()
-    return [dict(r) for r in righe]
+    return [dict(r) for r in rows]
 
 
-@app.patch("/api/persone/{persona_id}")
-async def modifica_persona(persona_id: int, dati: PersonaIn):
+@app.patch("/api/people/{person_id}")
+async def update_person(person_id: int, data: PersonIn):
     conn.execute(
         "UPDATE persona SET nome = ?, cognome = ?, email = ?, reparto = ? WHERE id = ?",
-        (dati.nome, dati.cognome, dati.email, dati.reparto, persona_id),
+        (data.nome, data.cognome, data.email, data.reparto, person_id),
     )
     conn.commit()
-    return {"id": persona_id}
+    return {"id": person_id}
 
 
-@app.post("/api/persone")
-async def crea_persona(dati: PersonaIn):
-    cursore = conn.execute(
+@app.post("/api/people")
+async def create_person(data: PersonIn):
+    cursor = conn.execute(
         "INSERT INTO persona (nome, cognome, email, reparto) VALUES (?, ?, ?, ?)",
-        (dati.nome, dati.cognome, dati.email, dati.reparto),
+        (data.nome, data.cognome, data.email, data.reparto),
     )
     conn.commit()
-    return {"id": cursore.lastrowid}
+    return {"id": cursor.lastrowid}
 
 
 @app.get("/api/mail")
-async def registro_mail():
-    righe = conn.execute(
+async def mail_log():
+    rows = conn.execute(
         """
         SELECT m.*, s.data AS sessione_data
         FROM mail_log m LEFT JOIN sessione s ON s.id = m.sessione_id
         ORDER BY m.id DESC LIMIT 200
         """
     ).fetchall()
-    return [mail.voce_log(r) for r in righe]
+    return [messages.log_entry(r) for r in rows]
 
 
-@app.get("/api/mail/impostazioni")
-async def impostazioni_mail():
-    """Restituisce lo stato persistente della consegna automatica."""
-    return {"invio_email_automatico": db.invio_email_automatico(conn)}
+@app.get("/api/mail/settings")
+async def mail_settings():
+    """The stored state of automatic delivery."""
+    return {"invio_email_automatico": db.automatic_email_delivery(conn)}
 
 
-@app.put("/api/mail/impostazioni")
-async def salva_impostazioni_mail(dati: ImpostazioneMailIn):
-    """Abilita o disabilita la consegna reale delle notifiche."""
-    db.salva_impostazione(
+@app.put("/api/mail/settings")
+async def save_mail_settings(data: MailSettingIn):
+    """Turns real delivery of the notifications on or off."""
+    db.save_setting(
         conn,
-        db.CHIAVE_INVIO_EMAIL_AUTOMATICO,
-        "1" if dati.invio_email_automatico else "0",
+        db.KEY_AUTO_EMAIL,
+        "1" if data.invio_email_automatico else "0",
     )
-    return {"invio_email_automatico": dati.invio_email_automatico}
+    return {"invio_email_automatico": data.invio_email_automatico}
 
 
-@app.get("/api/mail/canali")
-async def canali_mail():
-    """I programmi di posta presenti su questo computer, con i loro account.
+@app.get("/api/mail/channels")
+async def mail_channels():
+    """The mail programs on this computer, with their accounts.
 
-    Interroga davvero i programmi, quindi puo' avviarli: e' accettabile qui,
-    perche' viene chiamata dalla schermata di configurazione, non a ogni pagina.
+    It really asks the programs, so it may launch them: acceptable here,
+    because it is called from the setup screen and not on every page load.
     """
-    trovati = await asyncio.to_thread(invio.diagnosi_canali)
+    found = await asyncio.to_thread(delivery.available_channels)
     return {
-        "canali": trovati,
-        "scelto": db.leggi_impostazione(conn, db.CHIAVE_CANALE_MAIL),
-        "mittente": db.leggi_impostazione(conn, db.CHIAVE_MITTENTE_MAIL),
+        "canali": found,
+        "scelto": db.read_setting(conn, db.KEY_MAIL_CHANNEL),
+        "mittente": db.read_setting(conn, db.KEY_MAIL_SENDER),
     }
 
 
-@app.put("/api/mail/canale")
-async def salva_canale_mail(dati: CanaleMailIn):
-    """Registra da dove partiranno le notifiche su questo computer."""
-    if invio.canale_per_nome(dati.canale) is None:
-        raise HTTPException(400, f"canale sconosciuto: {dati.canale}")
-    db.salva_impostazione(conn, db.CHIAVE_CANALE_MAIL, dati.canale)
-    db.salva_impostazione(conn, db.CHIAVE_MITTENTE_MAIL, dati.mittente or "")
-    return {"canale": dati.canale, "mittente": dati.mittente or ""}
+@app.put("/api/mail/channel")
+async def save_mail_channel(data: MailChannelIn):
+    """Records where the notifications will be sent from on this computer."""
+    if delivery.channel_by_name(data.canale) is None:
+        raise HTTPException(400, f"canale sconosciuto: {data.canale}")
+    db.save_setting(conn, db.KEY_MAIL_CHANNEL, data.canale)
+    db.save_setting(conn, db.KEY_MAIL_SENDER, data.mittente or "")
+    return {"canale": data.canale, "mittente": data.mittente or ""}
 
 
-@app.post("/api/mail/prova")
-async def prova_mail(dati: ProvaMailIn):
-    """Manda una mail di prova e riporta cosa e' successo davvero.
+@app.post("/api/mail/test")
+async def test_mail(data: MailTestIn):
+    """Sends a test message and reports what actually happened.
 
-    Non passa dalla policy di invio automatico: serve proprio a verificare che
-    il canale funzioni *prima* di accenderla. Non entra nel registro delle
-    notifiche, che documenta la formazione e non le prove tecniche.
+    It does not go through the automatic-delivery policy: its whole point is to
+    check that the channel works *before* turning that on. It does not enter the
+    notification log, which documents training and not technical tests.
 
-    Gira in un thread perche' aspetta che il programma di posta tolga il
-    messaggio dalla coda: nell'event loop bloccherebbe tutta l'applicazione.
+    It runs in a thread because it waits for the mail program to take the
+    message out of the outbox: on the event loop that would block the whole app.
     """
-    if dati.canale:
-        canale = invio.canale_per_nome(dati.canale, dati.mittente)
-        if canale is None:
-            raise HTTPException(400, f"canale sconosciuto: {dati.canale}")
+    if data.canale:
+        channel = delivery.channel_by_name(data.canale, data.mittente)
+        if channel is None:
+            raise HTTPException(400, f"canale sconosciuto: {data.canale}")
     else:
-        canale = invio.scegli_canale(conn)
+        channel = delivery.choose_channel(conn)
 
-    messaggio = {
+    message = {
         "tipo": "prova",
         "sessione_id": 0,
-        "oggetto": "Piano Formazione: prova di invio",
+        "oggetto": "Cicerone: prova di invio",
         "corpo": (
-            "Questa e' una prova dell'invio automatico del Piano Formazione.\n\n"
+            "Questa e' una prova dell'invio automatico di Cicerone.\n\n"
             "Se la stai leggendo, le notifiche di creazione, spostamento e "
             "annullamento delle sessioni possono partire da questo computer.\n"
         ),
-        "destinatari": [dati.destinatario.strip()],
+        "destinatari": [data.destinatario.strip()],
         "senza_email": [],
     }
     try:
-        await asyncio.to_thread(canale.invia, messaggio)
-    except Exception as errore:
-        return {"esito": "errore", "canale": canale.nome, "errore": str(errore)}
-    return {"esito": "inviata", "canale": canale.nome}
+        await asyncio.to_thread(channel.send, message)
+    except Exception as error:
+        return {"esito": "errore", "canale": channel.name, "errore": str(error)}
+    return {"esito": "inviata", "canale": channel.name}
 
 
-@app.post("/api/mail/riprova-tutte")
-async def riprova_tutte_le_mail():
-    """Riprova le notifiche bloccate o fallite, dalla piu' vecchia.
+@app.post("/api/mail/retry-all")
+async def retry_all_mail():
+    """Retries the blocked or failed notifications, oldest first.
 
-    Serve dopo aver acceso l'invio o sistemato il programma di posta: le
-    notifiche restate indietro partono senza doverle riprendere una per una.
+    Useful after switching delivery on or fixing the mail program: everything
+    left behind goes out without picking the entries up one by one.
     """
-    righe = conn.execute(
+    rows = conn.execute(
         """
         SELECT * FROM mail_log
         WHERE esito IN ('invio_disattivato', 'errore')
@@ -657,59 +663,62 @@ async def riprova_tutte_le_mail():
         """
     ).fetchall()
 
-    riepilogo = {"totale": len(righe), "inviate": 0, "errori": 0, "bloccate": 0}
-    for riga in righe:
-        esito = await invio.invia_senza_bloccare(
-            conn, mail.messaggio_da_log(riga), mail_log_id=riga["id"]
+    summary = {"totale": len(rows), "inviate": 0, "errori": 0, "bloccate": 0}
+    for row in rows:
+        outcome = await delivery.send_without_blocking(
+            conn, messages.message_from_log(row), mail_log_id=row["id"]
         )
-        if esito["esito"] == "inviata":
-            riepilogo["inviate"] += 1
-        elif esito["esito"] == "errore":
-            riepilogo["errori"] += 1
+        if outcome["esito"] == "inviata":
+            summary["inviate"] += 1
+        elif outcome["esito"] == "errore":
+            summary["errori"] += 1
         else:
-            riepilogo["bloccate"] += 1
-    return riepilogo
+            summary["bloccate"] += 1
+    return summary
 
 
-@app.post("/api/mail/{mail_id}/riprova")
-async def riprova_mail(mail_id: int):
-    """Riprova una consegna senza ricreare una nuova voce nel log."""
-    riga = conn.execute(
+@app.post("/api/mail/{mail_id}/retry")
+async def retry_mail(mail_id: int):
+    """Retries one delivery without creating a new log entry."""
+    row = conn.execute(
         "SELECT * FROM mail_log WHERE id = ?", (mail_id,)
     ).fetchone()
-    if riga is None:
-        raise HTTPException(404, "voce mail inesistente")
-    if riga["esito"] not in {"invio_disattivato", "errore"}:
-        raise HTTPException(409, "questa mail non è riprovabile")
-    messaggio = mail.messaggio_da_log(riga)
-    return {"id": mail_id, **await invio.invia_senza_bloccare(conn, messaggio, mail_log_id=mail_id)}
+    if row is None:
+        raise HTTPException(404, "voce del registro inesistente")
+    if row["esito"] not in {"invio_disattivato", "errore"}:
+        raise HTTPException(409, "questa mail non e' riprovabile")
+    message = messages.message_from_log(row)
+    return {
+        "id": mail_id,
+        **await delivery.send_without_blocking(conn, message, mail_log_id=mail_id),
+    }
 
 
 @app.delete("/api/mail/{mail_id}")
-async def elimina_mail(mail_id: int):
-    """Elimina esclusivamente una voce dal registro delle email."""
-    cursore = conn.execute("DELETE FROM mail_log WHERE id = ?", (mail_id,))
-    if cursore.rowcount == 0:
-        raise HTTPException(404, "voce mail inesistente")
+async def delete_mail(mail_id: int):
+    """Deletes one entry from the delivery log, and nothing else."""
+    cursor = conn.execute("DELETE FROM mail_log WHERE id = ?", (mail_id,))
+    if cursor.rowcount == 0:
+        raise HTTPException(404, "voce del registro inesistente")
     conn.commit()
     return {"id": mail_id}
 
 
 @app.middleware("http")
-async def niente_cache(richiesta, prosegui):
-    """L'interfaccia non va mai in cache.
+async def no_cache(request, call_next):
+    """The interface must never be cached.
 
-    Server e pagina si aggiornano insieme: un JavaScript vecchio rimasto in
-    cache contro un HTML nuovo produce errori che sembrano bug dell'app.
+    Server and page are updated together: an old JavaScript left in the cache
+    against a new HTML produces errors that look like bugs in the app.
     """
-    risposta = await prosegui(richiesta)
-    risposta.headers["Cache-Control"] = "no-store"
-    return risposta
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 
 @app.get("/")
 async def home():
-    return FileResponse(CARTELLA_WEB / "index.html")
+    return FileResponse(WEB_FOLDER / "index.html")
 
 
-app.mount("/statico", StaticFiles(directory=CARTELLA_WEB), name="statico")
+app.mount("/static", StaticFiles(directory=WEB_FOLDER), name="static")

@@ -1,7 +1,7 @@
-"""Importazione una tantum dei dati dal file Excel di partenza.
+"""One-off import of the data from the original spreadsheet.
 
-L'Excel e' solo la sorgente iniziale: dopo questa importazione l'app e'
-autonoma e il file non viene piu' letto ne' scritto.
+The spreadsheet is only the starting point: after this import the app stands on
+its own and the file is never read or written again.
 """
 
 import sqlite3
@@ -13,70 +13,70 @@ import openpyxl
 from . import db
 
 
-def _testo(valore) -> str | None:
-    if valore is None:
+def _text(value) -> str | None:
+    if value is None:
         return None
-    testo = str(valore).strip()
-    return testo or None
+    text = str(value).strip()
+    return text or None
 
 
-def _data(valore) -> str | None:
-    if isinstance(valore, datetime):
-        return valore.date().isoformat()
-    if isinstance(valore, date):
-        return valore.isoformat()
+def _date(value) -> str | None:
+    if isinstance(value, datetime):
+        return value.date().isoformat()
+    if isinstance(value, date):
+        return value.isoformat()
     return None
 
 
-def _ora(valore) -> str | None:
-    if isinstance(valore, datetime):
-        return valore.strftime("%H:%M")
-    if isinstance(valore, time):
-        return valore.strftime("%H:%M")
+def _time(value) -> str | None:
+    if isinstance(value, datetime):
+        return value.strftime("%H:%M")
+    if isinstance(value, time):
+        return value.strftime("%H:%M")
     return None
 
 
-def _spezza_nome(intero: str) -> tuple[str, str]:
+def _split_name(whole: str) -> tuple[str, str]:
     """'Maria Rossi Bianchi' -> ('Maria', 'Rossi Bianchi')."""
-    parti = intero.strip().split(None, 1)
-    return (parti[0], parti[1]) if len(parti) == 2 else (intero.strip(), "")
+    parti = whole.strip().split(None, 1)
+    return (parti[0], parti[1]) if len(parti) == 2 else (whole.strip(), "")
 
 
-def trova_persona(conn: sqlite3.Connection, nome_intero: str) -> int:
-    """Restituisce l'id della persona, creandola se non esiste."""
-    nome, cognome = _spezza_nome(nome_intero)
-    riga = conn.execute(
+def find_person(conn: sqlite3.Connection, full_name: str) -> int:
+    """Returns the person's id, creating the record when missing."""
+    nome, cognome = _split_name(full_name)
+    row = conn.execute(
         "SELECT id FROM persona WHERE nome = ? AND cognome = ?", (nome, cognome)
     ).fetchone()
-    if riga:
-        return riga["id"]
+    if row:
+        return row["id"]
     cursore = conn.execute(
         "INSERT INTO persona (nome, cognome) VALUES (?, ?)", (nome, cognome)
     )
     return cursore.lastrowid
 
 
-def importa(percorso_excel: Path | str, conn: sqlite3.Connection) -> dict:
-    wb = openpyxl.load_workbook(percorso_excel, data_only=True)
+def import_spreadsheet(spreadsheet_path: Path | str, conn: sqlite3.Connection) -> dict:
+    wb = openpyxl.load_workbook(spreadsheet_path, data_only=True)
     adesso = datetime.now().isoformat(timespec="seconds")
 
-    # --- anagrafica tutor (foglio Dati, colonna F) ---
+    # --- anagrafica tutor (sheet Dati, colonna F) ---
     dati = wb["Dati"]
-    for riga in range(2, dati.max_row + 1):
-        nome = _testo(dati.cell(riga, 6).value)
+    for row in range(2, dati.max_row + 1):
+        nome = _text(dati.cell(row, 6).value)
         if nome:
-            trova_persona(conn, nome)
+            find_person(conn, nome)
 
-    # --- testata del piano (foglio Piano ISO) ---
+    # --- the plan's header (sheet Piano ISO) ---
     piano_iso = wb["Piano ISO"]
-    nome_risorsa = _testo(piano_iso["C4"].value)
-    reparto = _testo(piano_iso["H4"].value)
-    mansione = _testo(piano_iso["M4"].value)
-    responsabile = _testo(piano_iso["C5"].value)
-    tutor_principale = _testo(piano_iso["H5"].value)
-    data_inizio = _data(piano_iso["M5"].value)
+    nome_risorsa = _text(piano_iso["C4"].value)
+    reparto = _text(piano_iso["H4"].value)
+    mansione = _text(piano_iso["M4"].value)
+    responsabile = _text(piano_iso["C5"].value)
+    tutor_principale = _text(piano_iso["H5"].value)
+    data_inizio = _date(piano_iso["M5"].value)
 
-    persona_risorsa = trova_persona(conn, nome_risorsa)
+    persona_risorsa = find_person(conn, nome_risorsa)
     risorsa_id = conn.execute(
         """
         INSERT INTO risorsa
@@ -88,8 +88,8 @@ def importa(percorso_excel: Path | str, conn: sqlite3.Connection) -> dict:
             persona_risorsa,
             reparto,
             mansione,
-            trova_persona(conn, responsabile) if responsabile else None,
-            trova_persona(conn, tutor_principale) if tutor_principale else None,
+            find_person(conn, responsabile) if responsabile else None,
+            find_person(conn, tutor_principale) if tutor_principale else None,
             data_inizio,
             "Formazione",
         ),
@@ -99,20 +99,20 @@ def importa(percorso_excel: Path | str, conn: sqlite3.Connection) -> dict:
         "INSERT INTO piano (risorsa_id, creato_il) VALUES (?, ?)", (risorsa_id, adesso)
     ).lastrowid
 
-    # --- moduli: righe 9..29 del Piano ISO ---
+    # --- modules: rows 9..29 of the Piano ISO sheet ---
     moduli_per_codice: dict[str, int] = {}
     ordine = 0
-    for riga in range(9, 30):
-        codice = _testo(piano_iso.cell(riga, 1).value)
+    for row in range(9, 30):
+        codice = _text(piano_iso.cell(row, 1).value)
         if not codice:
             continue
         ordine += 1
-        area = _testo(piano_iso.cell(riga, 2).value) or ""
-        titolo = _testo(piano_iso.cell(riga, 3).value) or ""
-        applicabile = _testo(piano_iso.cell(riga, 4).value) or "SI"
-        modalita = _testo(piano_iso.cell(riga, 5).value)
-        tutor = _testo(piano_iso.cell(riga, 6).value)
-        tutor_id = trova_persona(conn, tutor) if tutor else None
+        area = _text(piano_iso.cell(row, 2).value) or ""
+        titolo = _text(piano_iso.cell(row, 3).value) or ""
+        applicabile = _text(piano_iso.cell(row, 4).value) or "SI"
+        modalita = _text(piano_iso.cell(row, 5).value)
+        tutor = _text(piano_iso.cell(row, 6).value)
+        tutor_id = find_person(conn, tutor) if tutor else None
 
         conn.execute(
             """
@@ -133,11 +133,11 @@ def importa(percorso_excel: Path | str, conn: sqlite3.Connection) -> dict:
             """,
             (
                 piano_id, codice, area, titolo, applicabile, modalita, tutor_id, ordine,
-                _data(piano_iso.cell(riga, 13).value),
-                _testo(piano_iso.cell(riga, 14).value),
-                _testo(piano_iso.cell(riga, 15).value),
-                _data(piano_iso.cell(riga, 16).value),
-                _testo(piano_iso.cell(riga, 17).value),
+                _date(piano_iso.cell(row, 13).value),
+                _text(piano_iso.cell(row, 14).value),
+                _text(piano_iso.cell(row, 15).value),
+                _date(piano_iso.cell(row, 16).value),
+                _text(piano_iso.cell(row, 17).value),
             ),
         ).lastrowid
 
@@ -145,21 +145,21 @@ def importa(percorso_excel: Path | str, conn: sqlite3.Connection) -> dict:
     sessioni_foglio = wb["Sessioni"]
     n_sessioni = 0
     senza_modulo = []
-    for riga in range(2, sessioni_foglio.max_row + 1):
-        data_sessione = _data(sessioni_foglio.cell(riga, 1).value)
+    for row in range(2, sessioni_foglio.max_row + 1):
+        data_sessione = _date(sessioni_foglio.cell(row, 1).value)
         if not data_sessione:
             continue
-        ora_inizio = _ora(sessioni_foglio.cell(riga, 3).value)
-        ora_fine = _ora(sessioni_foglio.cell(riga, 4).value)
+        ora_inizio = _time(sessioni_foglio.cell(row, 3).value)
+        ora_fine = _time(sessioni_foglio.cell(row, 4).value)
         if not ora_inizio or not ora_fine:
             continue
 
-        codice = _testo(sessioni_foglio.cell(riga, 6).value)
-        dettaglio = _testo(sessioni_foglio.cell(riga, 8).value)
-        tutor_cella = _testo(sessioni_foglio.cell(riga, 9).value)
-        stato = _testo(sessioni_foglio.cell(riga, 10).value) or "Pianificata"
-        esito = _testo(sessioni_foglio.cell(riga, 11).value)
-        note = _testo(sessioni_foglio.cell(riga, 12).value)
+        codice = _text(sessioni_foglio.cell(row, 6).value)
+        dettaglio = _text(sessioni_foglio.cell(row, 8).value)
+        tutor_cella = _text(sessioni_foglio.cell(row, 9).value)
+        stato = _text(sessioni_foglio.cell(row, 10).value) or "Pianificata"
+        esito = _text(sessioni_foglio.cell(row, 11).value)
+        note = _text(sessioni_foglio.cell(row, 12).value)
 
         modulo_id = moduli_per_codice.get(codice) if codice else None
         if modulo_id is None:
@@ -184,7 +184,7 @@ def importa(percorso_excel: Path | str, conn: sqlite3.Connection) -> dict:
             if nome_tutor:
                 conn.execute(
                     "INSERT OR IGNORE INTO sessione_tutor (sessione_id, persona_id) VALUES (?, ?)",
-                    (sessione_id, trova_persona(conn, nome_tutor)),
+                    (sessione_id, find_person(conn, nome_tutor)),
                 )
 
     conn.commit()

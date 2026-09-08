@@ -1,12 +1,17 @@
-"""Schema, accesso e aggiornamento del database SQLite."""
+"""Schema, access and upgrade of the SQLite database.
+
+Table and column names are in Italian and stay that way: they are domain
+identifiers written inside every existing archive, so renaming them here would
+leave the code and the data disagreeing. The README carries a glossary.
+"""
 
 import sqlite3
 from datetime import date, datetime
 from pathlib import Path
 
-from .percorsi import cartella_dati
+from .paths import data_folder
 
-PERCORSO_DB = cartella_dati() / "dati" / "piano.db"
+DB_PATH = data_folder() / "dati" / "piano.db"
 
 SCHEMA = """
 PRAGMA foreign_keys = ON;
@@ -32,7 +37,7 @@ CREATE TABLE IF NOT EXISTS risorsa (
     motivo              TEXT
 );
 
--- Catalogo riutilizzabile: da qui nasce il piano di ogni nuovo assunto.
+-- Reusable catalogue: every new hire's plan is created from this.
 CREATE TABLE IF NOT EXISTS modulo_catalogo (
     codice                     TEXT PRIMARY KEY,
     area                       TEXT NOT NULL,
@@ -42,11 +47,11 @@ CREATE TABLE IF NOT EXISTS modulo_catalogo (
     ordine                     INTEGER NOT NULL
 );
 
--- Colore di ogni area formativa: serve a riconoscere a colpo d'occhio, in
--- agenda e sul calendario, di che ambito e' una sessione (Commerciale, IT,
--- Ufficio Tecnico...). Il colore sta sull'area, cosi' tutti i moduli della
--- stessa area lo condividono senza doverlo ripetere. I colori mancanti vengono
--- assegnati all'avvio da regole.assicura_colori_aree.
+-- The colour of each training area: it is what lets you tell at a glance, in
+-- the agenda and on the calendar, which field a session belongs to. The colour
+-- lives on the area, so every module in it shares the same one without
+-- repeating it. Missing colours are assigned at start-up by
+-- rules.ensure_area_colours.
 CREATE TABLE IF NOT EXISTS area (
     nome   TEXT PRIMARY KEY,
     colore TEXT NOT NULL,
@@ -70,7 +75,7 @@ CREATE TABLE IF NOT EXISTS piano_modulo (
     modalita           TEXT,
     tutor_referente_id INTEGER REFERENCES persona(id),
     ordine             INTEGER NOT NULL,
-    -- colonne gialle del documento ISO: restano manuali
+    -- the certification form's editable columns: these stay manual
     entro_il           TEXT,
     verifica_chiusura  TEXT,
     verifica_efficacia TEXT,
@@ -94,8 +99,8 @@ CREATE TABLE IF NOT EXISTS sessione (
     sostituisce_id         INTEGER REFERENCES sessione(id),
     creata_il              TEXT NOT NULL,
     modificata_il          TEXT NOT NULL,
-    -- identificano l'appuntamento nel calendario di chi lo riceve: servono a
-    -- spostare o disdire proprio quello, senza toccare gli altri
+    -- these identify the appointment in the recipient's calendar: they are what
+    -- lets us move or cancel that one without touching the others
     uid_calendario         TEXT,
     revisione_calendario   INTEGER NOT NULL DEFAULT 0
 );
@@ -103,7 +108,7 @@ CREATE TABLE IF NOT EXISTS sessione (
 CREATE INDEX IF NOT EXISTS idx_sessione_piano ON sessione(piano_id, data);
 CREATE INDEX IF NOT EXISTS idx_sessione_modulo ON sessione(piano_modulo_id);
 
--- Una sessione puo' avere piu' tutor: nell'Excel stavano tutti in una cella.
+-- A session can have several tutors: in the spreadsheet they all sat in one cell.
 CREATE TABLE IF NOT EXISTS sessione_tutor (
     sessione_id INTEGER NOT NULL REFERENCES sessione(id) ON DELETE CASCADE,
     persona_id  INTEGER NOT NULL REFERENCES persona(id),
@@ -122,7 +127,7 @@ CREATE TABLE IF NOT EXISTS mail_log (
     esito       TEXT NOT NULL,
     errore      TEXT,
     senza_email TEXT,
-    calendario  TEXT   -- l'invito com'e' stato spedito, per poterlo rimandare
+    calendario  TEXT   -- the invitation as it was sent, so it can be resent
 );
 
 CREATE TABLE IF NOT EXISTS impostazione (
@@ -131,105 +136,103 @@ CREATE TABLE IF NOT EXISTS impostazione (
 );
 """
 
-STATI_SESSIONE = ["Pianificata", "Confermata", "Svolta", "Rinviata", "Annullata"]
-MODALITA = ["Spiegazione", "Affiancamento", "Autoapprendimento"]
-ESITI_VERIFICA = ["Superata", "Da ripetere", "N.A."]
-CHIAVE_INVIO_EMAIL_AUTOMATICO = "invio_email_automatico"
-# Il programma di posta scelto in configurazione, e l'indirizzo da cui parte la
-# notifica. Restano vuoti finche' la configurazione non e' stata fatta: e' cosi'
-# che l'app sa di doverla chiedere al primo avvio.
-CHIAVE_CANALE_MAIL = "canale_mail"
-CHIAVE_MITTENTE_MAIL = "mittente_mail"
+SESSION_STATES = ["Pianificata", "Confermata", "Svolta", "Rinviata", "Annullata"]
+TRAINING_MODES = ["Spiegazione", "Affiancamento", "Autoapprendimento"]
+CHECK_OUTCOMES = ["Superata", "Da ripetere", "N.A."]
 
-# Il codice del modulo stampato in testa al PDF. Ogni azienda ha il suo, preso
-# dal proprio sistema qualita', e dice di quale azienda si tratta: per questo
-# non sta nel codice ma nell'archivio, e si imposta dalla scheda Piano ISO.
-CHIAVE_CODICE_MODULO = "codice_modulo"
-CODICE_MODULO_PREDEFINITO = "MOD-FORM-01  Rev. 00"
+KEY_AUTO_EMAIL = "invio_email_automatico"
+# The mail program chosen during setup, and the address the notifications are
+# sent from. They stay empty until setup has been done: that is how the app
+# knows it has to ask on first run.
+KEY_MAIL_CHANNEL = "canale_mail"
+KEY_MAIL_SENDER = "mittente_mail"
+
+# The form code printed at the top of the PDF. Every company has its own, taken
+# from its quality system, and it identifies the company: that is why it lives
+# in the archive rather than in the code, and is set from the training plan tab.
+KEY_FORM_CODE = "codice_modulo"
+DEFAULT_FORM_CODE = "MOD-FORM-01  Rev. 00"
 
 
-def leggi_impostazione(
-    conn: sqlite3.Connection, chiave: str, predefinito: str | None = None
+def read_setting(
+    conn: sqlite3.Connection, key: str, default: str | None = None
 ) -> str | None:
-    """Legge un'impostazione persistita, restituendo il default se assente."""
-    riga = conn.execute(
-        "SELECT valore FROM impostazione WHERE chiave = ?", (chiave,)
+    """Reads a stored setting, returning the default when it is missing."""
+    row = conn.execute(
+        "SELECT valore FROM impostazione WHERE chiave = ?", (key,)
     ).fetchone()
-    return riga["valore"] if riga is not None else predefinito
+    return row["valore"] if row is not None else default
 
 
-def salva_impostazione(conn: sqlite3.Connection, chiave: str, valore: str) -> None:
-    """Salva o aggiorna un'impostazione applicativa."""
+def save_setting(conn: sqlite3.Connection, key: str, value: str) -> None:
+    """Stores or updates an application setting."""
     conn.execute(
         """
         INSERT INTO impostazione (chiave, valore) VALUES (?, ?)
         ON CONFLICT(chiave) DO UPDATE SET valore = excluded.valore
         """,
-        (chiave, valore),
+        (key, value),
     )
     conn.commit()
 
 
-def invio_email_automatico(conn: sqlite3.Connection) -> bool:
-    """Restituisce se la consegna automatica delle email è abilitata."""
-    valore = leggi_impostazione(
-        conn, CHIAVE_INVIO_EMAIL_AUTOMATICO, "0"
-    )
-    return str(valore).strip().lower() in {"1", "true", "on", "si", "sì"}
+def automatic_email_delivery(conn: sqlite3.Connection) -> bool:
+    """Whether automatic delivery of notifications is switched on."""
+    value = read_setting(conn, KEY_AUTO_EMAIL, "0")
+    return str(value).strip().lower() in {"1", "true", "on", "si", "si'"}
 
 
-def connetti(percorso: Path | str = PERCORSO_DB) -> sqlite3.Connection:
-    percorso = Path(percorso)
-    percorso.parent.mkdir(parents=True, exist_ok=True)
-    # L'app e' monoutente e tutti gli accessi avvengono nell'unico thread
-    # dell'event loop (gli endpoint sono async), quindi condividere la
-    # connessione e' sicuro.
-    conn = sqlite3.connect(percorso, check_same_thread=False)
+def connect(path: Path | str = DB_PATH) -> sqlite3.Connection:
+    path = Path(path)
+    path.parent.mkdir(parents=True, exist_ok=True)
+    # The app is single-user and every access happens on the event loop's only
+    # thread (the endpoints are async), so sharing the connection is safe.
+    conn = sqlite3.connect(path, check_same_thread=False)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
     return conn
 
 
 # ---------------------------------------------------------------------------
-# Aggiornare l'app senza perdere niente
+# Upgrading the app without losing anything
 #
-# L'archivio vive sul computer di chi usa il programma e contiene l'unica copia
-# di piani, sessioni e storico degli invii: una nuova versione dell'app deve
-# adattarlo, mai ricrearlo. `CREATE TABLE IF NOT EXISTS` da solo non basta,
-# perche' non tocca le tabelle che esistono gia': una colonna aggiunta allo
-# SCHEMA non comparirebbe su un archivio esistente.
+# The archive lives on the computer of whoever uses the program and holds the
+# only copy of plans, sessions and delivery history: a new version of the app
+# must adapt it, never recreate it. `CREATE TABLE IF NOT EXISTS` alone is not
+# enough, because it does not touch tables that already exist: a column added
+# to SCHEMA would not appear in an existing archive.
 #
-# Come si aggiunge una modifica allo schema:
+# How to add a schema change:
 #
-#   1. si scrive una funzione `_migrazione_N(conn)` che porta l'archivio dalla
-#      versione N-1 alla N, spostando i dati se serve;
-#   2. la si aggiunge in fondo a MIGRAZIONI con il numero successivo.
+#   1. write a `_migration_N(conn)` function taking the archive from version
+#      N-1 to N, moving data across if needed;
+#   2. append it to MIGRATIONS with the next number.
 #
-# Regole: le migrazioni si aggiungono in fondo e non si modificano piu' (sono
-# gia' girate sui computer altrui), vanno scritte in modo da poter essere
-# rieseguite senza danno, e non cancellano dati. Per togliere una colonna si
-# smette di usarla: costa meno di una ricostruzione della tabella andata male.
+# Rules: migrations are appended and never edited afterwards (they have already
+# run on other people's computers), they must be safe to run twice, and they do
+# not delete data. To drop a column you stop using it: that costs less than a
+# table rebuild gone wrong.
 # ---------------------------------------------------------------------------
 
-COPIE_DA_TENERE = 10
+BACKUPS_TO_KEEP = 10
 
 
-def _colonne(conn: sqlite3.Connection, tabella: str) -> set[str]:
-    return {riga["name"] for riga in conn.execute(f"PRAGMA table_info({tabella})")}
+def _columns(conn: sqlite3.Connection, table: str) -> set[str]:
+    return {row["name"] for row in conn.execute(f"PRAGMA table_info({table})")}
 
 
-def _aggiungi_colonna(
-    conn: sqlite3.Connection, tabella: str, nome: str, tipo: str
+def _add_column(
+    conn: sqlite3.Connection, table: str, name: str, kind: str
 ) -> None:
-    """ALTER TABLE che si puo' rieseguire: aggiunge la colonna solo se manca."""
-    if nome not in _colonne(conn, tabella):
-        conn.execute(f"ALTER TABLE {tabella} ADD COLUMN {nome} {tipo}")
+    """A rerunnable ALTER TABLE: adds the column only when it is missing."""
+    if name not in _columns(conn, table):
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {name} {kind}")
 
 
-def _migrazione_1(conn: sqlite3.Connection) -> None:
-    """Registro mail: quando e' stata registrata, e chi era senza indirizzo."""
-    _aggiungi_colonna(conn, "mail_log", "registrata_il", "TEXT")
-    _aggiungi_colonna(conn, "mail_log", "senza_email", "TEXT")
+def _migration_1(conn: sqlite3.Connection) -> None:
+    """Delivery log: when it was recorded, and who had no address."""
+    _add_column(conn, "mail_log", "registrata_il", "TEXT")
+    _add_column(conn, "mail_log", "senza_email", "TEXT")
     conn.execute(
         """
         UPDATE mail_log
@@ -239,122 +242,123 @@ def _migrazione_1(conn: sqlite3.Connection) -> None:
     )
 
 
-def _migrazione_2(conn: sqlite3.Connection) -> None:
-    """Identificativo dell'appuntamento nel calendario dei destinatari.
+def _migration_2(conn: sqlite3.Connection) -> None:
+    """The appointment's identifier in the recipients' calendars.
 
-    Serve a poter spostare o disdire *quel* preciso appuntamento: due sessioni
-    fra le stesse persone hanno UID diversi, quindi non si rischia di
-    cancellare quella sbagliata. La revisione va alzata a ogni modifica, o i
-    calendari ignorano l'aggiornamento come se fosse un doppione.
+    This is what allows moving or cancelling *that* particular appointment: two
+    sessions between the same people carry different UIDs, so there is no risk
+    of cancelling the wrong one. The sequence number must go up on every change,
+    or calendars ignore the update as a duplicate.
     """
-    _aggiungi_colonna(conn, "sessione", "uid_calendario", "TEXT")
-    _aggiungi_colonna(
+    _add_column(conn, "sessione", "uid_calendario", "TEXT")
+    _add_column(
         conn, "sessione", "revisione_calendario", "INTEGER NOT NULL DEFAULT 0"
     )
-    # l'invito viene conservato com'e' stato spedito: un "riprova" deve
-    # rimandare lo stesso appuntamento, non ricostruirne uno simile
-    _aggiungi_colonna(conn, "mail_log", "calendario", "TEXT")
+    # the invitation is kept exactly as it was sent: a retry has to resend the
+    # same appointment, not build a similar one
+    _add_column(conn, "mail_log", "calendario", "TEXT")
 
 
-# (numero, cosa fa, funzione). Il numero finisce in `PRAGMA user_version`.
-MIGRAZIONI: list[tuple[int, str, object]] = [
-    (1, "colonne del registro mail", _migrazione_1),
-    (2, "identificativo dell'appuntamento in calendario", _migrazione_2),
+# (number, what it does, function). The number ends up in `PRAGMA user_version`.
+MIGRATIONS: list[tuple[int, str, object]] = [
+    (1, "delivery log columns", _migration_1),
+    (2, "calendar appointment identifier", _migration_2),
 ]
 
-VERSIONE_SCHEMA = max(numero for numero, _, _ in MIGRAZIONI) if MIGRAZIONI else 0
+SCHEMA_VERSION = max(number for number, _, _ in MIGRATIONS) if MIGRATIONS else 0
 
 
-def cartella_copie(percorso: Path) -> Path:
-    return Path(percorso).parent / "copie"
+def backup_folder(path: Path) -> Path:
+    return Path(path).parent / "copie"
 
 
-def copia_archivio(percorso: Path | str, motivo: str = "avvio") -> Path | None:
-    """Mette da parte una copia dell'archivio prima di toccarlo.
+def backup_database(path: Path | str, reason: str = "avvio") -> Path | None:
+    """Puts a copy of the archive aside before touching it.
 
-    Usa l'API di backup di SQLite invece di copiare il file: e' consistente
-    anche se qualcuno sta scrivendo. Tiene le ultime COPIE_DA_TENERE e butta le
-    piu' vecchie, altrimenti la cartella cresce senza fine.
+    Uses SQLite's own backup API rather than copying the file: that stays
+    consistent even while something is writing. Keeps the last
+    BACKUPS_TO_KEEP copies and drops the oldest, or the folder would grow
+    without end.
     """
-    percorso = Path(percorso)
-    if not percorso.exists() or percorso.stat().st_size == 0:
-        return None  # archivio nuovo: non c'e' niente da salvare
+    path = Path(path)
+    if not path.exists() or path.stat().st_size == 0:
+        return None  # brand new archive: there is nothing to save
 
-    cartella = cartella_copie(percorso)
-    cartella.mkdir(parents=True, exist_ok=True)
-    marca = datetime.now().strftime("%Y%m%d-%H%M%S")
-    destinazione = cartella / f"{percorso.stem}-{marca}-{motivo}.db"
+    folder = backup_folder(path)
+    folder.mkdir(parents=True, exist_ok=True)
+    stamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    destination = folder / f"{path.stem}-{stamp}-{reason}.db"
 
-    origine = sqlite3.connect(percorso)
-    copia = sqlite3.connect(destinazione)
+    source = sqlite3.connect(path)
+    copy = sqlite3.connect(destination)
     try:
-        with copia:
-            origine.backup(copia)
+        with copy:
+            source.backup(copy)
     finally:
-        copia.close()
-        origine.close()
+        copy.close()
+        source.close()
 
-    vecchie = sorted(cartella.glob(f"{percorso.stem}-*.db"))
-    for superflua in vecchie[:-COPIE_DA_TENERE]:
-        superflua.unlink(missing_ok=True)
-    return destinazione
+    existing = sorted(folder.glob(f"{path.stem}-*.db"))
+    for spare in existing[:-BACKUPS_TO_KEEP]:
+        spare.unlink(missing_ok=True)
+    return destination
 
 
-def copia_giornaliera(percorso: Path | str = PERCORSO_DB) -> Path | None:
-    """Una copia al giorno, fatta all'avvio.
+def daily_backup(path: Path | str = DB_PATH) -> Path | None:
+    """One copy a day, taken at start-up.
 
-    L'archivio non e' su nessun server e non e' versionato: se il computer si
-    rompe o qualcuno cancella una cosa per sbaglio, queste copie sono l'unica
-    rete. Una al giorno basta e non riempie il disco.
+    The archive is on no server and under no version control: if the computer
+    breaks, or somebody deletes something by mistake, these copies are the only
+    safety net. One a day is enough and does not fill the disk.
     """
-    percorso = Path(percorso)
-    oggi = date.today().strftime("%Y%m%d")
-    esistenti = cartella_copie(percorso).glob(f"{percorso.stem}-{oggi}-*.db")
-    if any(esistenti):
+    path = Path(path)
+    today = date.today().strftime("%Y%m%d")
+    existing = backup_folder(path).glob(f"{path.stem}-{today}-*.db")
+    if any(existing):
         return None
-    return copia_archivio(percorso, motivo="avvio")
+    return backup_database(path, reason="avvio")
 
 
-def migra(conn: sqlite3.Connection, percorso: Path | str | None = None) -> list[int]:
-    """Porta l'archivio all'ultima versione. Restituisce le migrazioni applicate.
+def migrate(conn: sqlite3.Connection, path: Path | str | None = None) -> list[int]:
+    """Brings the archive up to date. Returns the migrations applied.
 
-    Prima di modificare qualcosa mette da parte una copia: se un aggiornamento
-    va storto, i dati di chi usa il programma sono ancora recuperabili.
+    Before changing anything it puts a copy aside: if an upgrade goes wrong, the
+    data of whoever uses the program is still recoverable.
     """
-    versione = conn.execute("PRAGMA user_version").fetchone()[0]
-    da_applicare = [m for m in MIGRAZIONI if m[0] > versione]
-    if not da_applicare:
+    version = conn.execute("PRAGMA user_version").fetchone()[0]
+    pending = [m for m in MIGRATIONS if m[0] > version]
+    if not pending:
         return []
 
-    if percorso is not None:
-        copia_archivio(percorso, motivo="aggiornamento")
+    if path is not None:
+        backup_database(path, reason="aggiornamento")
 
-    applicate = []
-    for numero, _descrizione, funzione in da_applicare:
-        funzione(conn)
-        conn.execute(f"PRAGMA user_version = {numero}")
-        applicate.append(numero)
+    applied = []
+    for number, _description, function in pending:
+        function(conn)
+        conn.execute(f"PRAGMA user_version = {number}")
+        applied.append(number)
     conn.commit()
-    return applicate
+    return applied
 
 
-def inizializza(percorso: Path | str = PERCORSO_DB) -> sqlite3.Connection:
-    conn = connetti(percorso)
-    nuovo = conn.execute(
+def initialise(path: Path | str = DB_PATH) -> sqlite3.Connection:
+    conn = connect(path)
+    brand_new = conn.execute(
         "SELECT COUNT(*) AS n FROM sqlite_master WHERE type = 'table'"
     ).fetchone()["n"] == 0
 
     conn.executescript(SCHEMA)
-    if nuovo:
-        # Archivio appena creato: e' gia' all'ultima versione, non c'e' niente
-        # da migrare e nessun dato da salvare.
-        conn.execute(f"PRAGMA user_version = {VERSIONE_SCHEMA}")
+    if brand_new:
+        # A freshly created archive is already at the latest version: there is
+        # nothing to migrate and no data to save.
+        conn.execute(f"PRAGMA user_version = {SCHEMA_VERSION}")
     else:
-        migra(conn, percorso)
+        migrate(conn, path)
 
     conn.execute(
         "INSERT OR IGNORE INTO impostazione (chiave, valore) VALUES (?, '0')",
-        (CHIAVE_INVIO_EMAIL_AUTOMATICO,),
+        (KEY_AUTO_EMAIL,),
     )
     conn.commit()
     return conn

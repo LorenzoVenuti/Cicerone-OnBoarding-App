@@ -1,0 +1,81 @@
+name: macOS package
+
+# Builds Cicerone.app on a GitHub Mac, so whoever uses the program does not
+# have to install Python. PyInstaller does not cross-compile: the Mac package
+# has to be built on a Mac.
+#
+# Start it by hand from the Actions tab ("Run workflow"), or push a v* tag to
+# get a release with the package attached as well.
+
+on:
+  workflow_dispatch:
+  push:
+    tags: ["v*"]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Install the dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
+          pip install pyinstaller
+
+      - name: Run the tests
+        # If the plan rules or the delivery break, better to know it here than
+        # from the computer of whoever uses the program.
+        run: python -m unittest discover -s app -p "test_*.py"
+
+      - name: Build the package
+        run: pyinstaller --clean --noconfirm Cicerone.spec
+
+      - name: Sign the package
+        # On an Apple-silicon Mac an unsigned binary does not start at all: it
+        # is not a warning, it is a refusal. This signs it "ad-hoc", which needs
+        # no developer account and is enough to make the app launch.
+        #
+        # The extended attributes the system attaches to files make codesign
+        # fail with "resource fork, Finder information, or similar detritus not
+        # allowed", and `xattr -c` cannot remove `com.apple.provenance`. Going
+        # through a copy made with ditto leaves them out.
+        run: |
+          ditto --norsrc --noextattr --noqtn dist/Cicerone.app /tmp/Cicerone.app
+          codesign -s - --force --all-architectures --deep /tmp/Cicerone.app
+          rm -rf dist/Cicerone.app
+          ditto /tmp/Cicerone.app dist/Cicerone.app
+
+      - name: Check that it was produced and is signed
+        run: |
+          test -d "dist/Cicerone.app" || { echo "package not produced"; exit 1; }
+          codesign -dv dist/Cicerone.app 2>&1 | grep -q "Signature=adhoc" \
+            || { echo "the package does not look signed"; exit 1; }
+          echo "Cicerone.app ready and signed, $(du -sh dist/Cicerone.app | cut -f1)"
+
+      - name: Compress preserving the permissions
+        # A .app is a folder: GitHub's artifacts would recompress it and lose
+        # the execute bit, and the app would no longer start. `ditto` produces
+        # a zip that macOS reopens intact.
+        run: ditto -c -k --keepParent dist/Cicerone.app Cicerone-macos.zip
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: Cicerone-macos
+          path: Cicerone-macos.zip
+          retention-days: 90
+
+      - name: Attach to the release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: Cicerone-macos.zip

@@ -1,23 +1,23 @@
-name: Eseguibile Windows
+name: Windows executable
 
-# Costruisce Cicerone.exe su una macchina Windows di GitHub, cosi'
-# nessuno deve avere Python installato: ne' chi sviluppa, ne' chi usa l'app.
+# Builds Cicerone.exe on a GitHub Windows machine, so nobody needs Python
+# installed: neither whoever develops the app nor whoever uses it.
 #
-# Avviarlo a mano dalla scheda Actions ("Run workflow"), oppure pubblicare un
-# tag v* per ottenere anche una release con l'eseguibile allegato.
+# Start it by hand from the Actions tab ("Run workflow"), or push a v* tag to
+# get a release with the executable attached as well.
 
 on:
   workflow_dispatch:
   push:
     tags: ["v*"]
 
-# Senza questo il GITHUB_TOKEN e' di sola lettura e la creazione della release
-# fallisce con "Resource not accessible by integration".
+# Without this the GITHUB_TOKEN is read-only and creating the release fails
+# with "Resource not accessible by integration".
 permissions:
   contents: write
 
 jobs:
-  costruisci:
+  build:
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v4
@@ -27,20 +27,20 @@ jobs:
           python-version: "3.12"
           cache: pip
 
-      - name: Installa le dipendenze
+      - name: Install the dependencies
         run: |
           python -m pip install --upgrade pip
           pip install -r requirements.txt
           pip install pyinstaller
 
-      - name: Costruisci l'eseguibile
+      - name: Build the executable
         run: pyinstaller --clean --noconfirm Cicerone.spec
 
-      - name: Verifica che sia stato prodotto
+      - name: Check that it was produced
         run: |
-          if (-not (Test-Path dist/Cicerone.exe)) { throw "eseguibile non prodotto" }
+          if (-not (Test-Path dist/Cicerone.exe)) { throw "executable not produced" }
           $mb = [math]::Round((Get-Item dist/Cicerone.exe).Length / 1MB, 1)
-          Write-Host "Cicerone.exe pronto, $mb MB"
+          Write-Host "Cicerone.exe ready, $mb MB"
 
       - uses: actions/upload-artifact@v4
         with:
@@ -48,7 +48,7 @@ jobs:
           path: dist/Cicerone.exe
           retention-days: 90
 
-      - name: Allega alla release
+      - name: Attach to the release
         if: startsWith(github.ref, 'refs/tags/v')
         uses: softprops/action-gh-release@v2
         with:

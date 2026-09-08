@@ -1,235 +1,205 @@
-# Istruzioni per chi lavora su questo progetto
+# Notes for anyone working on this project
 
-Leggi questo file prima di toccare il codice. Contiene le regole del dominio che
-non si deducono dai sorgenti e gli errori che costano di piu'.
+Read this before touching the code. It holds the domain rules you cannot deduce
+from the sources, and the mistakes that cost the most.
 
-## Cos'e'
+## What it is
 
-Applicazione desktop per la gestione della formazione aziendale. Gestisce la
-formazione di ogni nuovo assunto: l'agenda delle sessioni, il piano formativo
-richiesto dalla certificazione ISO, e le mail automatiche quando un appuntamento
-viene creato, spostato o annullato.
+A desktop app for onboarding new hires: the agenda of their training sessions,
+the training plan required by the quality certification, and the automatic
+notifications sent when an appointment is created, moved or cancelled.
 
-Nasce da un foglio di calcolo compilato a mano. Quel foglio non e' piu'
-la fonte: e' stato importato una volta e va considerato superato. Non scrivere
-codice che legge o aggiorna file Excel, con la sola eccezione di
-`app/importer.py`, che serve alla migrazione iniziale.
+It grew out of a spreadsheet filled in by hand. That spreadsheet is no longer
+the source: it was imported once and should be considered superseded. Do not
+write code that reads or updates spreadsheets, with the single exception of
+`app/importer.py`, which exists for that initial migration.
 
-Chi usa il programma non e' una persona tecnica e non aprira' mai un terminale:
-ogni cosa deve essere raggiungibile dall'interfaccia.
+Whoever uses the program is not a technical person and will never open a
+terminal: everything has to be reachable from the interface.
 
-## Avvio
+## Language
+
+Code, comments and documentation are in **English**. Three things stay in
+Italian, deliberately:
+
+- **the interface** and the message templates in `template_mail/`, because the
+  people using the program are Italian — that is product content;
+- **the printed form**, which is filed as a certification record;
+- **domain identifiers**: table and column names, session states, the response
+  keys that mirror those columns, and the template variables. They are written
+  inside every existing archive, so renaming them in the code would leave code
+  and data disagreeing. The README carries the glossary.
+
+When you add a message the user will read, write it in Italian. When you name a
+function or a variable, name it in English.
+
+## Getting started
 
     python3 -m venv .venv
     .venv/bin/pip install -r requirements.txt
-    .venv/bin/python semina_esempio.py     # dati finti per lavorare
-    .venv/bin/python avvia.py              # finestra dell'app
+    .venv/bin/python seed_demo.py     # invented data to work with
+    .venv/bin/python run.py           # the app window
 
-Solo backend, con ricaricamento automatico:
+Server only, with auto-reload:
 
     .venv/bin/python -m uvicorn app.main:app --reload --port 8731
 
-Su Windows i comandi sono `.venv\Scripts\python`.
+On Windows the commands are `.venv\Scripts\python`.
 
-## Dove sta cosa
+## Where things are
 
-    app/db.py          schema SQLite e connessione
-    app/percorsi.py    dove stanno risorse e dati, in sviluppo e nell'eseguibile
-    app/regole.py      calcolo del piano, chiusura automatica, sovrapposizioni
-    app/stampa.py      PDF del modulo ISO da firmare
-    app/mail.py        composizione dei messaggi dai template
-    app/invio.py       canali di invio: Outlook su Windows, file su Mac
-    app/importer.py    lettura una tantum dell'Excel di partenza
-    app/main.py        API HTTP e avvio del server
-    app/web/           interfaccia: tre file, nessun framework, nessuna build
-    template_mail/     i testi delle mail, modificabili senza toccare il codice
-    semina_esempio.py  genera dati finti
-    importa.py         importa i dati veri da un Excel
+    app/db.py          schema, migrations and archive backups
+    app/paths.py       where resources and data live, in development and packaged
+    app/rules.py       plan calculation, automatic closing, clash detection
+    app/pdf_export.py  the PDF of the certification form
+    app/messages.py    composing the messages from the templates
+    app/invites.py     iCalendar invitations
+    app/delivery.py    the mail programs, and the check that a message really left
+    app/importer.py    one-off reading of the original spreadsheet
+    app/main.py        the HTTP API and the server
+    app/web/           interface: three files, no framework, no build step
+    template_mail/     the message texts, editable without touching code
+    seed_demo.py       generates invented data
+    SPEC.md            functional specification and decisions taken
 
-## Le quattro regole da non rompere
+## The rules not to break
 
-**1. Il piano e' calcolato, mai scritto.**
-Le sessioni sono gli unici fatti. Date, conteggi, ore e stato di ogni modulo si
-derivano da quelle, in `regole.riepilogo_moduli`. Non aggiungere colonne
-aggregate nel database "per comodita' o per velocita'": duplicare un dato
-calcolabile e' esattamente il difetto dell'Excel che questa app sostituisce.
-Con qualche decina di sessioni per piano, ricalcolare costa nulla.
+**1. The plan is calculated, never written.**
+Sessions are the only facts. Dates, counts, hours and each module's status are
+derived from them, in `rules.module_summary`. Do not add aggregate columns to
+the database "for convenience or speed": duplicating something computable is
+exactly the flaw of the spreadsheet this app replaces. With a few dozen sessions
+per plan, recomputing costs nothing.
 
-**2. La chiusura automatica gira all'avvio, non a un orario.**
-Il requisito parla delle 18:00, ma un'app desktop a quell'ora puo' avere il
-computer spento. `regole.chiudi_sessioni_passate` viene chiamata quando l'app
-parte e recupera tutte le giornate arretrate. Deve restare idempotente: due
-esecuzioni di fila non devono cambiare niente la seconda volta.
-Chiude una sessione solo se e' ancora aperta, se e' passata, e se nessuno l'ha
-riprogrammata. Segna `Svolta` piu' esito `OK`, e lascia `chiusa_automaticamente`
-a 1: quel campo serve a distinguere un giudizio umano da uno automatico, non
-toglierlo.
+**2. Automatic closing runs at start-up, not at a fixed time.**
+The requirement mentions 18:00, but a desktop machine may be switched off then.
+`rules.close_past_sessions` is called when the app starts and catches up on
+every day left behind. It must stay idempotent: running it twice must change
+nothing the second time. It closes a session only if it is still open, is in the
+past, and nobody rescheduled it. It marks `Svolta` plus outcome `OK` and leaves
+`chiusa_automaticamente` at 1: that flag distinguishes a human judgement from an
+automatic one — do not drop it.
 
-**3b. Tutor e dipendenti sono lo stesso tipo di profilo.**
-Non esistono due anagrafiche separate: una persona ha nome, cognome ed email, e
-puo' fare da tutor su un piano, essere la risorsa di un altro, o entrambe. Si
-creano e si modificano dalla scheda Persone. L'email serve a ricevere le
-notifiche: una modifica di piano parte verso i tutor della sessione **e** verso
-il dipendente in formazione, non solo verso il coach.
+**3. Tutors and trainees are the same kind of record.**
+There are not two separate directories: a person has a name, a surname and an
+email, and can be a tutor on one plan, the trainee of another, or both. They are
+created and edited from the People tab. The email is what makes notifications
+possible: a change of plan goes to the session's tutors **and** to the person
+being trained, not just to the coach.
 
-**Le notifiche portano un invito per il calendario.** Dal 2026-09-08 non sono
-piu' solo testo: allegano un `.ics` che scrive l'appuntamento nel calendario di
-tutor e risorsa. Ogni sessione ha un `uid_calendario` generato una volta e mai
-piu' cambiato, piu' una `revisione_calendario` che sale a ogni avviso. Servono a
-una cosa sola, ma decisiva: **spostare o disdire tocca quell'appuntamento e
-basta**. Due incontri fra le stesse persone — capita quando un argomento e'
-lungo e si divide — hanno UID diversi, quindi disdire il primo non cancella il
-secondo. Uno spostamento **aggiorna** l'invito esistente (stesso UID, revisione
-piu' alta): non si disdice per poi ricreare, o l'impegno sparirebbe e
-ricomparirebbe nel calendario di chi lo riceve. `METHOD:CANCEL` solo per
-l'annullamento. Senza alzare la revisione i calendari scartano l'aggiornamento
-credendolo un doppione.
+**4. People are referred to by identity, never by name.**
+In the spreadsheet the tutor was a string used as a key, and renaming somebody
+broke the sheet: a real problem, reported by the user. Every reference to a
+person goes through `persona.id`. A session can have several tutors: the
+relation is `sessione_tutor`, not a text field.
 
-**Il programma di posta non si indovina: si configura.** Su un computer possono
-esserci Outlook e Mail, uno con l'account di lavoro e l'altro vuoto, e da fuori
-non si distinguono: il profilo di Outlook puo' pesare centinaia di MB senza
-avere un solo account attivo. Al primo avvio l'app interroga i programmi
-presenti (`invio.diagnosi_canali`), mostra quali indirizzi hanno, fa scegliere
-e salva la scelta in `impostazione` (`canale_mail`, `mittente_mail`). Finche'
-non e' configurato, `stato.mail_configurata` e' falso e l'interfaccia lo chiede.
+**5. Sessions are never deleted.**
+They are cancelled, staying in the plan with state `Annullata`. The training
+plan is a certification document: it has to show what was called off too.
 
-**"Nessun errore" non vuol dire "spedita".** AppleScript restituisce successo
-anche quando il messaggio viene solo accodato, o quando il client lo accetta e
-lo perde perche' non ha account: e' successo davvero, provandolo. Registrare
-quella come una consegna e' il difetto peggiore possibile qui, perche' il
-registro direbbe "inviata" e nessuno saprebbe mai il contrario. Per questo dopo
-`send` gli script controllano che il messaggio **esca dalla coda**, e se resta
-li' e' un errore. Non togliere quel controllo per rendere l'invio piu' veloce.
+**6. Clashes are flagged, not prevented.**
+`rules.overlaps` finds collisions for the trainee and for the tutors; the
+interface shows them while you type, and still lets you save. Sometimes two
+overlapping commitments are intentional, and a program that forbids them gets
+worked around.
 
-La consegna automatica e' una policy centrale, persistita in `impostazione`:
-il default e' OFF. Anche con invio disattivato la notifica viene composta e
-registrata in `mail_log` come `invio_disattivato`; il sender non viene chiamato.
-Ogni voce conserva `registrata_il`; `inviata_il` viene valorizzato solo dopo
-una consegna riuscita.
-Dal registro si possono riprovare le voci bloccate o fallite e cancellare
-soltanto la voce del registro. Il retry aggiorna la voce originale.
+**7. Colour means the area, not the state.**
+In the agenda (left border) and on the calendar (block background) the colour
+says which training area the module belongs to — Commercial, IT, Engineering —
+not the state of the session. The colour lives on the `area` table, assigned by
+default by `rules.ensure_area_colours`, which runs at start-up and is
+idempotent: an old archive fills itself in without a hand-written migration. It
+is changed from the Modules tab and applies to every module in that area. State
+stays in the text badges; on the calendar a cancelled session is struck through
+and dimmed. The calendar always opens on the current week, never on the plan's
+first session.
 
-**3. Le persone si riferiscono per identita', mai per nome.**
-Nell'Excel il tutor era una stringa usata come chiave, e rinominare qualcuno
-rompeva il foglio: e' stato un problema reale segnalato dall'utente. Ogni
-riferimento a una persona passa da `persona.id`. Una sessione puo' avere piu'
-tutor: la relazione e' `sessione_tutor`, non un campo di testo.
+**8. Notifications carry a calendar invitation.**
+Not just text: an `.ics` that writes the appointment into the tutors' and the
+trainee's calendars. Every session has a `uid_calendario`, generated once and
+never changed, plus a `revisione_calendario` that goes up with every
+notification. They serve one decisive purpose: **moving or cancelling touches
+that appointment and no other**. Two meetings between the same people — which
+happens when a long topic is split — have different UIDs, so cancelling the
+first does not remove the second. A move **updates** the existing invitation
+(same UID, higher sequence): it is not cancelled and recreated, or the
+commitment would vanish and reappear in the recipient's calendar.
+`METHOD:CANCEL` is only for cancellations. Without raising the sequence,
+calendars discard the update as a duplicate.
 
-**4. Le sessioni non si cancellano.**
-Si annullano, restando nel piano con stato `Annullata`. Il piano formativo e' un
-documento di certificazione: deve mostrare anche cosa e' stato disdetto.
+**9. The mail program is not guessed: it is configured.**
+A computer can hold both Outlook and Mail, one with the work account and the
+other empty, and from the outside they look alike: Outlook's profile can weigh
+hundreds of megabytes without a single active account. On first run the app asks
+the installed programs (`delivery.available_channels`), shows which addresses
+they hold, lets the user choose, and stores the choice in `impostazione`
+(`canale_mail`, `mittente_mail`). Until that is done, `mail_configured` is false
+and the interface asks.
 
-**5. Le sovrapposizioni si segnalano, non si impediscono.**
-`regole.sovrapposizioni` trova gli accavallamenti della risorsa e dei tutor;
-l'interfaccia li mostra mentre si compila, e lascia salvare. A volte due
-impegni sovrapposti sono voluti, e un programma che lo vieta viene aggirato.
+**10. "No error" does not mean "sent".**
+AppleScript reports success even when the message is only queued, or when the
+client accepts it and loses it for want of an account — this was observed, not
+imagined. Recording that as a delivery is the worst possible defect here,
+because the log would say "sent" and nobody would ever learn otherwise. After
+`send`, the scripts check that the message **left the outbox**, and if it is
+still there that is an error. Do not remove that check to make sending faster.
 
-**6. Il colore identifica l'area, non lo stato.**
-In agenda (bordo sinistro) e sul calendario (sfondo del blocco) il colore dice
-di che area formativa e' il modulo — Commerciale, IT, Ufficio Tecnico... — non
-lo stato della sessione. Il colore vive sulla tabella `area` (una riga per
-area), assegnato di default da `regole.assicura_colori_aree`, che gira all'avvio
-ed e' idempotente: cosi' anche un archivio vecchio si popola da solo, senza
-migrazioni a mano. Si cambia dalla scheda Moduli, e vale per tutti i moduli di
-quell'area. Lo stato resta nelle pastiglie testuali; sul calendario l'annullata
-si riconosce perche' barrata e attenuata. Il calendario si apre sempre sulla
-settimana di oggi, non sulla prima sessione del piano.
+Automatic delivery is a central policy, stored in `impostazione`, and it
+defaults to **off**. Even with delivery off the notification is composed and
+recorded in `mail_log` as `invio_disattivato`; the sender is not called. Every
+entry keeps `registrata_il`; `inviata_il` is only set after a successful
+delivery. Blocked or failed entries can be retried from the log, and deleting an
+entry deletes only the log row, never the session.
 
-## Dati e riservatezza
+## Data and confidentiality
 
-Il repository e' privato e **non contiene dati veri**, per scelta. Nel database
-finiscono nomi, indirizzi e piani formativi di dipendenti reali.
+The repository holds **no real data**, by choice. Names, addresses and training
+records of real people end up in the database.
 
-- `dati/`, i file `.db` e i file `.xlsx` sono in `.gitignore`. Lasciali fuori.
-- Non scrivere nomi, indirizzi email o nomi di prodotti aziendali reali nel
-  codice, nei commenti, nei test o nei messaggi di commit.
-- Per provare qualcosa usa `semina_esempio.py`: nomi inventati, dominio
-  `@esempio.test`, e due persone deliberatamente senza email per verificare
-  l'avviso.
-- Se ti serve una funzionalita' che richiede dati veri, chiedi: non copiarli nel
-  repository "solo per un test".
+- `dati/`, the `.db` files and the `.xlsx` files are in `.gitignore`. Leave them
+  out.
+- Do not write real names, email addresses or product names into the code, the
+  comments, the tests or the commit messages.
+- To try something out use `seed_demo.py`: invented names on the
+  `@esempio.test` domain, and two people deliberately without an email so the
+  warning can be exercised.
+- The training catalogue and the form code identify a company: they belong in
+  the archive, not in the code. See the README.
 
-## Convenzioni
+## Conventions
 
-- Codice, nomi di funzioni e variabili, commenti e messaggi dell'interfaccia in
-  italiano. Non e' consueto, ma il progetto e' coerente: mantienilo.
-- I messaggi di commit invece sono in inglese, all'imperativo presente
-  (`Add PDF export`, `Fix session overlap check`).
-- Nessuna emoji, da nessuna parte.
-- L'interfaccia non usa framework e non ha una fase di build: tre file in
-  `app/web/`. Non introdurre React, bundler o dipendenze da CDN senza motivo
-  forte: l'app deve funzionare offline sul computer dell'utente.
-- Per la stessa ragione font e icone sono dentro il programma: Inter sta in
-  `app/web/font/` (font variabile, un file solo, SIL Open Font License) e le
-  icone sono forme SVG scritte a mano in `app/web/app.js`. Niente Google Fonts
-  a runtime, niente librerie di icone.
-- I riferimenti a CSS e JavaScript in `index.html` portano un `?v=N`. Alzalo
-  quando cambi la struttura della pagina: il server manda gia' `no-store`, ma
-  una cache vecchia sopravvissuta a un aggiornamento e' una giornata persa a
-  cercare un bug che non esiste.
-- Gli endpoint di `app/main.py` sono `async def` di proposito: FastAPI li esegue
-  cosi' sull'unico thread dell'event loop, e la connessione SQLite condivisa
-  resta sicura. Se ne aggiungi uno sincrono, il primo accesso al database
-  fallira' con "SQLite objects created in a thread can only be used in that same
-  thread".
+- Commit messages in English, imperative present (`Add PDF export`).
+- No emoji, anywhere.
+- The interface uses no framework and has no build step: three files in
+  `app/web/`. Do not introduce React, a bundler or a CDN dependency without a
+  strong reason — the app has to work offline.
+- For the same reason the font and icons live inside the program: Inter sits in
+  `app/web/font/` (variable font, one file, SIL Open Font License) and the icons
+  are hand-written SVG shapes in `app/web/app.js`.
+- The CSS and JavaScript references in `index.html` carry a `?v=N`. Raise it
+  when you change the page: the server already sends `no-store`, but a stale
+  cache surviving an update is a day lost hunting a bug that does not exist.
+- The endpoints in `app/main.py` are `async def` on purpose: FastAPI then runs
+  them on the event loop's single thread, and the shared SQLite connection stays
+  safe. Add a synchronous one and the first database access will fail with
+  "SQLite objects created in a thread can only be used in that same thread".
+- Anything that waits on the mail program goes through
+  `delivery.send_without_blocking`: waiting for the outbox can take tens of
+  seconds, and on the event loop the whole interface would freeze.
 
-## Come verificare una modifica
+## Checking a change
 
-Non esiste ancora una suite di test: e' il primo debito da colmare, e se tocchi
-`regole.py` conviene aggiungerne. Nel frattempo, i controlli minimi:
+    .venv/bin/python -m unittest discover -s app -p "test_*.py"
 
-    # il piano si calcola e l'app risponde
-    .venv/bin/python -c "from app import db, regole; print(regole.riepilogo_moduli(db.connetti(), 1))"
-    .venv/bin/python -m uvicorn app.main:app --port 8731 &
-    curl -s localhost:8731/api/stato
+Ninety tests cover the plan calculation, automatic closing, clash detection,
+delivery policy, the macOS channels and archive upgrades. If you touch
+`rules.py`, add to `app/test_rules.py`.
 
-Se cambi la chiusura automatica, provala a orari diversi passando `adesso`:
-
-    from datetime import datetime
-    regole.sessioni_da_chiudere(conn, datetime(2026, 9, 5, 9, 0))
-
-Se cambi il calcolo del piano, confronta i risultati con quelli precedenti sugli
-stessi dati: i numeri erano stati verificati uno a uno contro l'Excel originale.
-
-## Lavorare da due computer
-
-Il progetto viene modificato da due macchine diverse, a volte lo stesso giorno.
-
-- `git pull` prima di cominciare, sempre.
-- Commit piccoli e frequenti, e push appena una modifica sta in piedi: lasciare
-  lavoro non condiviso in locale e' il modo piu' facile per creare conflitti.
-- Il database non e' versionato, quindi ogni computer ha i suoi dati: non
-  aspettarti che lo stato dell'app sia lo stesso sulle due macchine.
-- Se cambi lo schema in `app/db.py`, **aggiungi una migrazione**: modificare
-  solo `SCHEMA` non basta, perche' `CREATE TABLE IF NOT EXISTS` non tocca le
-  tabelle gia' presenti e la colonna nuova non comparirebbe sugli archivi
-  esistenti. Si scrive `_migrazione_N(conn)` e la si aggiunge in fondo a
-  `MIGRAZIONI`; il numero finisce in `PRAGMA user_version`, cosi' ogni archivio
-  sa a che punto e'. Prima di applicarle l'app mette da parte una copia in
-  `dati/copie/`. Le migrazioni gia' pubblicate non si modificano piu': sono
-  girate su computer che non hai, e vanno scritte in modo da poter essere
-  rieseguite senza danno. I test stanno in `app/test_aggiornamento.py`.
-
-## Stato attuale e lavoro aperto
-
-Funzionano: importazione dall'Excel, agenda, piano ISO calcolato con le colonne
-di verifica compilabili, rubrica delle persone, chiusura automatica, mail alla
-creazione, allo spostamento e all'annullamento, registro degli invii.
-
-Funzionano inoltre: creazione di una risorsa e del suo piano dall'interfaccia,
-catalogo dei moduli modificabile, calendario settimanale, avviso sulle
-sovrapposizioni, esportazione PDF del modulo ISO, eseguibile Windows.
-
-**L'applicazione gira su macOS e su Windows**, e le due piattaforme non sono
-intercambiabili su due punti che non si deducono dal codice:
-
-- l'invio via Outlook COM non esiste su macOS, quindi oggi su Mac
-  `invio.scegli_canale()` ripiega su `InvioSuFile` e **le notifiche non
-  partono**: vanno scritte in `dati/mail_non_inviate/`. Serve un canale vero,
-  verosimilmente Outlook per Mac via AppleScript;
-- l'eseguibile Windows non serve piu' come unico bersaglio: serve un `.app`, e
-  con esso la questione di dove l'app scrive quando e' impacchettata.
-
-L'elenco completo di cosa blocca la consegna e di cosa si potrebbe aggiungere
-dopo sta in [ROADMAP.md](ROADMAP.md). Va tenuto aggiornato li', non qui: questo
-file descrive le regole del dominio, non il lavoro da fare.
+If you change the schema, **add a migration**: editing `SCHEMA` alone is not
+enough, because `CREATE TABLE IF NOT EXISTS` does not touch existing tables and
+the new column would never appear in an existing archive. Write
+`_migration_N(conn)` and append it to `MIGRATIONS`; the number ends up in
+`PRAGMA user_version`, so every archive knows where it stands. Before applying
+them the app puts a copy in `dati/copie/`. Published migrations are never
+edited: they have already run on computers you do not have, and they must be
+safe to run twice. The tests are in `app/test_upgrades.py`.

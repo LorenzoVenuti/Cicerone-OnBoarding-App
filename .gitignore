@@ -1,5 +1,5 @@
-# Dati reali: nomi, indirizzi e piani formativi di persone vere.
-# Non entrano nel repository, in nessuna forma.
+# Real data: names, addresses and training records of real people.
+# It never enters the repository, in any form.
 dati/
 *.db
 *.xlsx
@@ -8,17 +8,15 @@ dati/
 __pycache__/
 *.pyc
 .DS_Store
-build/
-dist/
 
-# prodotti della compilazione
+# build products
 dist/
 build/
 
-# pacchetti pronti per la consegna
+# packages ready to hand over
 *.zip
 
-# Segreti: non esistono oggi, ma il giorno che nascono non devono entrare
+# Secrets: there are none today, but the day they appear they stay out
 .env
 .env.*
 !.env.example
@@ -29,5 +27,5 @@ credentials.json
 id_rsa*
 token*.json
 
-# Log e prodotti locali
+# Logs and local products
 *.log

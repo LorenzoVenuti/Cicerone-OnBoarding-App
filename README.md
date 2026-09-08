@@ -1,213 +1,228 @@
 # Cicerone
 
-Applicazione desktop per l'ufficio HR: gestisce la formazione di ogni nuovo
-assunto, dall'agenda delle sessioni al piano formativo richiesto dalla
-certificazione ISO, e avvisa da sola le persone coinvolte quando un
-appuntamento viene creato, spostato o annullato.
+A desktop app for onboarding new hires: the agenda of their training sessions,
+the certification training plan, and automatic notifications — each carrying a
+calendar invitation — whenever an appointment is created, moved or cancelled.
 
-Sostituisce un foglio di calcolo compilato a mano, e ne corregge il difetto
-principale: nel foglio i totali e gli stati si scrivevano a mano e potevano
-contraddire le righe sottostanti. Qui **il piano e' calcolato**, quindi non puo'
-essere incoerente.
+It replaces a spreadsheet filled in by hand, and fixes its main flaw: in the
+spreadsheet the totals and the statuses were typed in and could contradict the
+rows below them. Here **the plan is calculated**, so it cannot disagree with
+itself.
 
-Il nome viene dal cicerone, la guida che accompagna qualcuno in un posto nuovo:
-e' il mestiere del tutor.
+The name comes from the *cicerone*, the guide who shows a newcomer around: that
+is the tutor's job.
 
-## Per chi deve solo usarla
+> **A note on language.** Code, comments and documentation are in English. The
+> user interface, the message templates and the printed form are in Italian,
+> because the people using the program are: that part is product content, not
+> code. A few identifiers stay Italian too — see [Glossary](#glossary).
 
-Non serve installare niente: ne' Python, ne' altro. Si riceve un pacchetto e ci
-si fa doppio clic.
+## If you just want to use it
 
-Le istruzioni passo passo, con cosa aspettarsi a ogni schermata, stanno in
+Nothing to install: no Python, no runtime. You get one package and double-click
+it. Step-by-step instructions, in Italian, are in
 **[docs/istruzioni.pdf](docs/istruzioni.pdf)**.
 
-In breve:
+1. Unzip `Cicerone-v1.0.zip` and move **Cicerone** where you keep your programs.
+2. Open it.
+3. On first run the app asks **which mail program** the notifications should be
+   sent from, and lets you send a test before confirming.
 
-1. Estrarre `Cicerone-v1.0.zip` con un doppio clic e spostare **Cicerone** dove
-   si tengono i programmi.
-2. Aprirlo con un doppio clic.
-3. Al primo avvio l'app chiede **da quale programma di posta** far partire le
-   notifiche, e permette di fare una prova prima di confermare.
+Automatic delivery starts **switched off**: notifications are composed and
+logged but not sent until you turn it on from the *Mail inviate* tab. That is
+deliberate — it lets you see what the app would send before letting it write to
+your colleagues.
 
-L'invio automatico parte **spento**: le notifiche vengono preparate e
-registrate, ma non spedite, finche' non lo si accende dalla scheda *Mail
-inviate*. E' voluto, cosi' si puo' vedere cosa farebbe l'app prima di lasciarle
-scrivere ai colleghi.
+## If you want to work on it
 
-## Per chi ci lavora sopra
-
-Serve Python 3.12 o superiore.
+Python 3.12 or newer.
 
     python3 -m venv .venv
     .venv/bin/pip install -r requirements.txt
-    .venv/bin/python semina_esempio.py     # dati inventati, per sviluppare
-    .venv/bin/python avvia.py              # finestra dell'app
+    .venv/bin/python seed_demo.py     # invented data, for development
+    .venv/bin/python run.py           # the app window
 
-Su Windows i comandi sono `.venv\Scripts\python`.
+On Windows the commands are `.venv\Scripts\python`.
 
-Solo il server, con ricaricamento automatico a ogni salvataggio:
+Server only, reloading on every save:
 
     .venv/bin/python -m uvicorn app.main:app --reload --port 8731
 
-I test — 90, che coprono il calcolo del piano, la chiusura automatica, le
-sovrapposizioni, l'invio e gli aggiornamenti dell'archivio:
+The tests — 90 of them, covering the plan calculation, automatic closing, clash
+detection, delivery and archive upgrades:
 
     .venv/bin/python -m unittest discover -s app -p "test_*.py"
 
-## Cosa fa
+## What it does
 
-**Agenda** — le sessioni giorno per giorno. I giorni gia' passati stanno
-raccolti in fondo, richiusi. Il colore a sinistra dice l'**area** del modulo
-(Commerciale, IT, Ufficio Tecnico...), non lo stato.
+**Agenda** — sessions day by day. Days already past are folded away. The colour
+on the left says which **area** the module belongs to, not the state of the
+session.
 
-**Settimana** — le stesse sessioni su un calendario, che si apre sempre sulla
-settimana corrente.
+**Week** — the same sessions on a calendar, always opening on the current week.
 
-**Piano ISO** — il piano formativo calcolato: una riga per modulo, con date,
-conteggi, ore e stato ricavati dalle sole sessioni. Le colonne di verifica
-restano compilabili a mano, perche' sono un giudizio di una persona. Si esporta
-in PDF nel formato del modulo del sistema qualita', pronto da firmare.
+**Training plan** — the plan, computed: one row per module, with dates, counts,
+hours and status derived from the sessions alone. The assessment columns stay
+editable by hand, because they are a person's judgement. It exports to PDF in
+the shape of the quality-system form, ready to sign.
 
-**Moduli** — il catalogo da cui nasce il piano di ogni nuovo assunto, con il
-colore di ciascuna area.
+**Modules** — the catalogue every new hire's plan is created from, with the
+colour of each area.
 
-**Persone** — la rubrica. Una persona ha nome, cognome ed email, e puo' fare da
-tutor su un piano ed essere la risorsa in formazione di un altro: non ci sono
-due anagrafiche separate.
+**People** — the address book. One person has a name and an email, and can be a
+tutor on one plan and the trainee on another: there are not two separate records.
 
-**Mail inviate** — il registro di ogni notifica: quando, a chi, con quale testo
-e con che esito. Da qui si rilegge il testo spedito, si riprovano quelle non
-partite e si accende o spegne l'invio automatico.
+**Sent mail** — the log of every notification: when, to whom, with what text and
+with what outcome. From here you can re-read what was sent, retry what did not
+go out, and switch automatic delivery on or off.
 
-## Notifiche e inviti in calendario
+## Notifications and calendar invitations
 
-Partono da sole in tre casi: sessione creata, spostata, annullata. Vanno ai
-tutor della sessione **e** alla persona in formazione.
+They go out in three cases: a session created, moved, or cancelled. They reach
+the session's tutors **and** the person being trained.
 
-Ogni notifica porta un **invito per il calendario**, non solo il testo: chi la
-riceve se lo ritrova come appuntamento da accettare. Ogni sessione ha un
-identificativo suo, generato una volta sola: spostare o disdire tocca **quel**
-preciso appuntamento. Due incontri fra le stesse persone — capita quando un
-argomento e' lungo e si divide in piu' parti — non si possono confondere.
-Uno spostamento **aggiorna** l'appuntamento esistente invece di disdirlo e
-ricrearlo, cosi' nel calendario non sparisce per poi ricomparire.
+Every notification carries a **calendar invitation**, not just text: the
+recipient gets an appointment to accept. Each session owns an identifier,
+generated once: moving or cancelling touches **that** appointment. Two meetings
+between the same people — which happens when a long topic is split in two —
+cannot be confused. A move **updates** the existing appointment rather than
+cancelling and recreating it, so nothing vanishes and reappears in anyone's
+calendar.
 
-L'app non ha credenziali di posta e non parla con nessun server: usa il
-programma di posta gia' configurato sul computer, tramite Outlook su Windows e
-Outlook o Mail su macOS. La mail risulta quindi spedita dalla persona, e non c'e'
-nessuna casella di servizio da farsi creare.
+The app holds no mail credentials and talks to no server: it drives the mail
+program already configured on the computer — Outlook on Windows, Outlook or Mail
+on macOS. The message therefore goes out from the person, and there is no
+service mailbox to have created.
 
-Un dettaglio che conta: **"nessun errore" non vuol dire "spedita"**. Un
-programma di posta puo' accettare un messaggio e lasciarlo nella posta in
-uscita, o perderlo se non ha account configurati. Dopo l'invio l'app controlla
-che il messaggio sia davvero uscito dalla coda, e se resta li' lo registra come
-errore invece che come consegna.
+One detail that matters: **"no error" does not mean "sent"**. A mail program can
+accept a message and leave it in the outbox, or lose it if it has no account
+configured. After sending, the app checks that the message really left the
+outbox, and if it is still sitting there it records an error rather than a
+delivery.
 
-## I dati
+## The data
 
-Stanno tutti in un file solo, `piano.db`, che vive **sul computer di chi usa il
-programma** e non e' in questo repository, per scelta: contiene nomi, indirizzi
-e piani formativi di persone reali.
+Everything lives in a single file, `piano.db`, on the computer of whoever uses
+the program. It is not in this repository, deliberately: it holds names,
+addresses and training records of real people.
 
-- su macOS: `~/Library/Application Support/Cicerone/dati/`
-- su Windows: accanto all'eseguibile
+- macOS: `~/Library/Application Support/Cicerone/dati/`
+- Windows: next to the executable
 
-L'app ne fa **una copia al giorno** all'avvio, in `dati/copie/`, tenendo le
-ultime dieci, e **una copia prima di ogni aggiornamento** che tocchi la
-struttura dell'archivio. E' l'unica rete di sicurezza che esiste, perche' quel
-file non e' su nessun server.
+The app keeps **one copy a day** at start-up, in `dati/copie/`, retaining the
+last ten, plus **one copy before any upgrade** that touches the archive's shape.
+That is the only safety net there is, because that file is on no server.
 
-Per sviluppare si usa `semina_esempio.py`, che genera nomi inventati sul dominio
-`@esempio.test`.
+For development, `seed_demo.py` generates invented names on the `@esempio.test`
+domain.
 
-### Cosa c'e' nei dati di esempio, e cosa no
+### What is in the sample data, and what is not
 
-`semina_esempio.py` crea un archivio completo e realistico — una risorsa, 21
-moduli, 28 sessioni su cinque settimane, alcune gia' svolte — perche' un
-progetto che si clona e parte vuoto non si puo' provare, e i test hanno bisogno
-di qualcosa su cui girare. Due delle persone generate sono **volutamente senza
-indirizzo email**, per poter verificare che l'app segnali il problema invece di
-fallire in silenzio.
+`seed_demo.py` creates a complete, realistic archive — one trainee, 21 modules,
+28 sessions over five weeks, some already held — because a project that starts
+empty cannot be tried out and the tests need something to run against. Two of
+the generated people are **deliberately left without an email address**, so the
+warning the app raises can be verified rather than assumed.
 
-Sono dati inventati, e il catalogo formativo e' **deliberatamente generico**:
-descrive un inserimento come lo avrebbe una qualsiasi azienda manifatturiera. Il
-catalogo vero di un'azienda e' un'informazione riservata — dice cosa produce, in
-quali linee e come e' organizzata dentro — e per questo non sta nel codice.
-Vive solo nell'archivio locale, e ci arriva in due modi: caricandolo da un foglio
-di calcolo con `importa.py`, oppure scrivendolo dalla scheda **Moduli**.
+The data is invented and the training catalogue is **deliberately generic**: it
+describes an induction as any manufacturing company might run it. A real
+catalogue is confidential — it says what a company makes, in which lines, and
+how it is organised inside — so it does not live in the code. It reaches the
+archive in one of two ways: loaded from a spreadsheet with
+`import_spreadsheet.py`, or typed in from the **Modules** tab.
 
-Vale lo stesso per il **codice del modulo** stampato in testa al PDF: ogni
-azienda ha il suo, preso dal proprio sistema qualita', e identifica l'azienda.
-Nel codice c'e' solo un segnaposto (`MOD-FORM-01`); quello vero si imposta una
-volta dal campo *Codice del modulo* nella scheda Piano ISO, e resta
-nell'archivio.
+The same goes for the **form code** printed at the top of the PDF: every company
+has its own, taken from its quality system, and it identifies the company. The
+code carries only a placeholder (`MOD-FORM-01`); the real one is set once from
+the *Codice del modulo* field in the training plan tab, and stays in the archive.
 
-In generale, la regola di questo progetto e': **nel repository stanno il
-programma e i dati inventati; i dati veri e tutto cio' che identifica
-un'organizzazione stanno nell'archivio locale, che non e' versionato.**
+The rule, in short: **the repository holds the program and invented data; real
+data and anything identifying an organisation live in the local archive, which
+is not version-controlled.**
 
-## Aggiornare senza perdere niente
+## Upgrading without losing anything
 
-Una versione nuova dell'app **adatta** l'archivio esistente, non lo ricrea. Ogni
-archivio porta scritto dentro a che versione dello schema si trova, e all'avvio
-vengono applicate solo le modifiche mancanti, dopo averne messo da parte una
-copia.
+A new version of the app **adapts** the existing archive, it does not recreate
+it. Every archive records which schema version it is at, and on start-up only
+the missing migrations are applied, after a copy has been put aside.
 
-Chi tocca lo schema aggiunge una migrazione: la procedura e le regole sono in
-[CLAUDE.md](CLAUDE.md), i test in `app/test_aggiornamento.py`.
+Anyone touching the schema adds a migration: the procedure and the rules are in
+[CLAUDE.md](CLAUDE.md), the tests in `app/test_upgrades.py`.
 
-## Com'e' fatta
+## How it is built
 
-    app/db.py          schema, migrazioni e copie dell'archivio
-    app/percorsi.py    dove stanno risorse e dati, in sviluppo e impacchettata
-    app/regole.py      calcolo del piano, chiusura automatica, sovrapposizioni
-    app/stampa.py      PDF del modulo ISO
-    app/mail.py        composizione dei messaggi dai template
-    app/calendario.py  inviti iCalendar
-    app/invio.py       i programmi di posta, e la verifica che il messaggio parta
-    app/importer.py    lettura una tantum del foglio di calcolo di partenza
-    app/main.py        API e server
-    app/web/           interfaccia: tre file, nessun framework, nessuna compilazione
-    template_mail/     i testi delle mail, modificabili senza toccare il codice
+    app/db.py          schema, migrations and archive backups
+    app/paths.py       where resources and data live, in development and packaged
+    app/rules.py       plan calculation, automatic closing, clash detection
+    app/pdf_export.py  the PDF of the certification form
+    app/messages.py    composing the messages from the templates
+    app/invites.py     iCalendar invitations
+    app/delivery.py    the mail programs, and the check that a message really left
+    app/importer.py    one-off reading of the original spreadsheet
+    app/main.py        API and server
+    app/web/           interface: three files, no framework, no build step
+    template_mail/     the three message texts, editable without touching code
 
-Il server e' locale e la finestra e' nativa: l'app non e' un sito e non richiede
-connessione. L'interfaccia non usa framework ne' CDN, e font e icone stanno
-dentro il programma, perche' deve funzionare anche senza rete.
+The server is local and the window is native: this is not a website and it needs
+no connection. The interface uses no framework and no CDN, and the font and
+icons live inside the program, because it has to work offline.
 
-## Costruire il pacchetto
+## Building the package
 
-PyInstaller non compila per un sistema diverso dal proprio: il pacchetto macOS
-si costruisce su macOS, quello Windows su Windows. Entrambi si possono produrre
-dai workflow in `.github/workflows/`, avviandoli dalla scheda **Actions**.
+PyInstaller does not cross-compile: the macOS package is built on macOS, the
+Windows one on Windows. Both can be produced from the workflows in
+`.github/workflows/`, started from the **Actions** tab.
 
-In locale, su macOS:
+Locally, on macOS:
 
     .venv/bin/pyinstaller --clean --noconfirm Cicerone.spec
     ditto --norsrc --noextattr --noqtn dist/Cicerone.app /tmp/C.app
     codesign -s - --force --deep /tmp/C.app
     rm -rf dist/Cicerone.app && ditto /tmp/C.app dist/Cicerone.app
 
-I due passaggi con `ditto` e `codesign` non sono facoltativi: su un Mac con chip
-Apple un pacchetto senza firma **non parte**, e gli attributi estesi che il
-sistema attacca ai file fanno fallire la firma.
+The `ditto` and `codesign` steps are not optional: on an Apple-silicon Mac an
+unsigned package **will not start**, and the extended attributes the system
+attaches to files make the signing fail.
 
-Per consegnarlo conviene comprimerlo, non copiare la cartella:
+To hand it over, compress it rather than copying the folder:
 
     ditto -c -k --keepParent dist/Cicerone.app Cicerone-v1.0.zip
 
-Una chiavetta formattata per Windows (FAT32 o exFAT) non conserva i permessi di
-esecuzione: copiandoci il pacchetto aperto, sull'altro computer non partirebbe.
-Dentro uno zip i permessi viaggiano come dato e arrivano intatti.
+A USB stick formatted for Windows (FAT32 or exFAT) does not preserve the execute
+permission: copying the open package onto one leaves it unable to start on the
+other computer. Inside a zip the permissions travel as data and arrive intact.
 
-L'icona si rigenera dal logo con `crea_icona.py` (richiede Pillow, che serve
-solo a quello e non entra nel pacchetto).
+The icon is regenerated from the logo with `make_icon.py`, and the user guide
+with `make_guide.py` (both need Pillow, which is used only for that and does not
+enter the package).
 
-## Licenza
+## Glossary
 
-MIT — vedi [LICENSE](LICENSE).
+Some identifiers stay in Italian on purpose, because they are **domain
+identifiers**: they are written inside every existing archive, and renaming them
+in the code would leave code and data disagreeing.
 
-## Prima di metterci mano
+| Italian | Meaning |
+|---|---|
+| `persona` | a person: tutor, manager or trainee |
+| `risorsa` | the person being trained (the "resource" of the original form) |
+| `piano` / `piano_modulo` | the training plan, and one module within it |
+| `sessione` | a single training session |
+| `modulo_catalogo` | the reusable catalogue a plan is created from |
+| `area` | the training area a module belongs to, and its colour |
+| `mail_log` | the record of every notification |
+| `Pianificata`, `Svolta`, `Annullata`, `Rinviata` | session states, stored as written |
 
-[CLAUDE.md](CLAUDE.md) raccoglie le regole del dominio che dai sorgenti non si
-deducono, e gli errori che costano di piu'. [ROADMAP.md](ROADMAP.md) dice cosa
-manca. [SPEC.md](SPEC.md) le decisioni prese e il perche'.
+The same applies to the response keys that mirror those columns, and to the
+template variables (`{{ risorsa }}`, `{{ data_estesa }}`), which are the contract
+with the Italian message templates.
+
+## Licence
+
+MIT — see [LICENSE](LICENSE).
+
+## Before working on it
+
+[CLAUDE.md](CLAUDE.md) gathers the domain rules that cannot be deduced from the
+sources, and the mistakes that cost the most. [ROADMAP.md](ROADMAP.md) says what
+is missing. [SPEC.md](SPEC.md) records the decisions taken and why.

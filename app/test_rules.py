@@ -1,9 +1,9 @@
-"""Test del cuore del programma: il piano calcolato, la chiusura automatica
-e le sovrapposizioni.
+"""Tests for the heart of the program: the computed plan, automatic closing
+and clash detection.
 
-Sono le regole che sostituiscono le formule del vecchio foglio Excel. I numeri
-erano stati verificati uno a uno contro l'originale: questi test servono a non
-perderli senza accorgersene.
+These are the rules that replace the formulas of the old spreadsheet. The
+numbers had been checked one by one against the original: these tests exist so
+they cannot be lost without anybody noticing.
 """
 
 import shutil
@@ -12,15 +12,15 @@ import unittest
 from datetime import datetime
 from pathlib import Path
 
-from app import db, regole
+from app import db, rules
 
 
-class BaseConPiano(unittest.TestCase):
-    """Un piano con due moduli e le persone che servono."""
+class PlanFixture(unittest.TestCase):
+    """A plan with two modules and the people it needs."""
 
     def setUp(self) -> None:
         self.cartella = tempfile.mkdtemp()
-        self.conn = db.inizializza(Path(self.cartella) / "prova.db")
+        self.conn = db.initialise(Path(self.cartella) / "prova.db")
         c = self.conn
 
         self.risorsa_persona = c.execute(
@@ -76,42 +76,42 @@ class BaseConPiano(unittest.TestCase):
         return identificativo
 
 
-class DurataTests(unittest.TestCase):
-    def test_ore_intere_e_mezze(self) -> None:
-        self.assertEqual(regole.durata_ore("09:00", "11:00"), 2.0)
-        self.assertEqual(regole.durata_ore("09:30", "11:00"), 1.5)
-        self.assertEqual(regole.durata_ore("09:00", "09:15"), 0.25)
+class DurationTests(unittest.TestCase):
+    def test_whole_and_half_hours(self) -> None:
+        self.assertEqual(rules.duration_hours("09:00", "11:00"), 2.0)
+        self.assertEqual(rules.duration_hours("09:30", "11:00"), 1.5)
+        self.assertEqual(rules.duration_hours("09:00", "09:15"), 0.25)
 
 
-class StatoModuloTests(unittest.TestCase):
-    def test_non_applicabile_resta_na(self) -> None:
-        self.assertEqual(regole.stato_modulo("NO", 5, 5), "N.A.")
+class ModuleStateTests(unittest.TestCase):
+    def test_not_applicable_stays_na(self) -> None:
+        self.assertEqual(rules.module_state("NO", 5, 5), "N.A.")
 
-    def test_senza_sessioni_e_da_pianificare(self) -> None:
-        self.assertEqual(regole.stato_modulo("SI", 0, 0), "Da pianificare")
+    def test_no_sessions_means_still_to_plan(self) -> None:
+        self.assertEqual(rules.module_state("SI", 0, 0), "Da pianificare")
 
-    def test_tutte_svolte_e_completata(self) -> None:
-        self.assertEqual(regole.stato_modulo("SI", 2, 2), "Completata")
+    def test_all_done_means_completed(self) -> None:
+        self.assertEqual(rules.module_state("SI", 2, 2), "Completata")
 
-    def test_alcune_svolte_e_in_corso(self) -> None:
-        self.assertEqual(regole.stato_modulo("SI", 3, 1), "In corso")
+    def test_some_done_means_in_progress(self) -> None:
+        self.assertEqual(rules.module_state("SI", 3, 1), "In corso")
 
-    def test_pianificate_ma_nessuna_svolta(self) -> None:
-        self.assertEqual(regole.stato_modulo("SI", 2, 0), "Pianificata")
+    def test_planned_but_none_done(self) -> None:
+        self.assertEqual(rules.module_state("SI", 2, 0), "Pianificata")
 
 
-class RiepilogoModuliTests(BaseConPiano):
-    """Il foglio 'Piano ISO' calcolato dalle sole sessioni."""
+class ModuleSummaryTests(PlanFixture):
+    """The training plan, computed from the sessions alone."""
 
-    def test_conta_ore_e_date_solo_delle_sessioni_valide(self) -> None:
+    def test_counts_hours_and_dates_of_valid_sessions_only(self) -> None:
         self.sessione("2026-01-10", "09:00", "11:00", "Svolta")
         self.sessione("2026-01-20", "09:00", "12:00", "Svolta")
         self.sessione("2026-01-30", "09:00", "11:00", "Pianificata")
-        # queste non devono contare
+        # these must not count
         self.sessione("2026-01-05", "09:00", "18:00", "Annullata")
         self.sessione("2026-02-28", "09:00", "18:00", "Rinviata")
 
-        riga = next(m for m in regole.riepilogo_moduli(self.conn, self.piano)
+        riga = next(m for m in rules.module_summary(self.conn, self.piano)
                     if m["id"] == self.modulo)
 
         self.assertEqual(riga["sessioni_pianificate"], 3)
@@ -121,35 +121,35 @@ class RiepilogoModuliTests(BaseConPiano):
         self.assertEqual(riga["al"], "2026-01-30")
         self.assertEqual(riga["stato"], "In corso")
 
-    def test_un_modulo_senza_sessioni_e_da_pianificare(self) -> None:
-        riga = next(m for m in regole.riepilogo_moduli(self.conn, self.piano)
+    def test_a_module_with_no_sessions_is_still_to_plan(self) -> None:
+        riga = next(m for m in rules.module_summary(self.conn, self.piano)
                     if m["id"] == self.modulo)
         self.assertEqual(riga["stato"], "Da pianificare")
         self.assertIsNone(riga["dal"])
         self.assertEqual(riga["ore_svolte"], 0)
 
-    def test_il_modulo_non_applicabile_resta_na_anche_con_sessioni(self) -> None:
+    def test_a_non_applicable_module_stays_na(self) -> None:
         self.sessione("2026-01-10", stato="Svolta", modulo=self.modulo_na)
-        riga = next(m for m in regole.riepilogo_moduli(self.conn, self.piano)
+        riga = next(m for m in rules.module_summary(self.conn, self.piano)
                     if m["id"] == self.modulo_na)
         self.assertEqual(riga["stato"], "N.A.")
 
-    def test_il_piano_e_calcolato_non_memorizzato(self) -> None:
-        """Aggiungendo una sessione il riepilogo cambia da solo."""
-        prima = next(m for m in regole.riepilogo_moduli(self.conn, self.piano)
+    def test_the_plan_is_calculated_not_stored(self) -> None:
+        """Adding a session changes the summary on its own."""
+        prima = next(m for m in rules.module_summary(self.conn, self.piano)
                      if m["id"] == self.modulo)
         self.sessione("2026-01-10", "09:00", "13:00", "Svolta")
-        dopo = next(m for m in regole.riepilogo_moduli(self.conn, self.piano)
+        dopo = next(m for m in rules.module_summary(self.conn, self.piano)
                     if m["id"] == self.modulo)
 
         self.assertEqual(prima["ore_svolte"], 0)
         self.assertEqual(dopo["ore_svolte"], 4.0)
 
 
-class ChiusuraAutomaticaTests(BaseConPiano):
-    def test_chiude_le_passate_e_le_segna_automatiche(self) -> None:
+class AutomaticClosingTests(PlanFixture):
+    def test_closes_past_sessions_and_flags_them_automatic(self) -> None:
         vecchia = self.sessione("2026-01-10")
-        regole.chiudi_sessioni_passate(self.conn, datetime(2026, 1, 15, 9, 0))
+        rules.close_past_sessions(self.conn, datetime(2026, 1, 15, 9, 0))
 
         riga = self.conn.execute(
             "SELECT * FROM sessione WHERE id = ?", (vecchia,)
@@ -158,80 +158,80 @@ class ChiusuraAutomaticaTests(BaseConPiano):
         self.assertEqual(riga["esito_verifica"], "OK")
         self.assertEqual(riga["chiusa_automaticamente"], 1)
 
-    def test_la_giornata_di_oggi_si_chiude_solo_dopo_le_18(self) -> None:
+    def test_today_closes_only_after_the_cutoff_hour18(self) -> None:
         self.sessione("2026-01-15")
-        mattina = regole.sessioni_da_chiudere(self.conn, datetime(2026, 1, 15, 9, 0))
+        mattina = rules.sessions_to_close(self.conn, datetime(2026, 1, 15, 9, 0))
         self.assertEqual(mattina, [])
 
-        sera = regole.sessioni_da_chiudere(self.conn, datetime(2026, 1, 15, 18, 30))
+        sera = rules.sessions_to_close(self.conn, datetime(2026, 1, 15, 18, 30))
         self.assertEqual(len(sera), 1)
 
-    def test_non_tocca_quelle_future(self) -> None:
+    def test_leaves_future_sessions_alone(self) -> None:
         self.sessione("2026-03-01")
         self.assertEqual(
-            regole.sessioni_da_chiudere(self.conn, datetime(2026, 1, 15, 9, 0)), []
+            rules.sessions_to_close(self.conn, datetime(2026, 1, 15, 9, 0)), []
         )
 
-    def test_non_tocca_annullate_e_svolte(self) -> None:
+    def test_leaves_cancelled_and_done_alone(self) -> None:
         self.sessione("2026-01-10", stato="Annullata")
         self.sessione("2026-01-11", stato="Svolta")
         self.assertEqual(
-            regole.sessioni_da_chiudere(self.conn, datetime(2026, 1, 15, 9, 0)), []
+            rules.sessions_to_close(self.conn, datetime(2026, 1, 15, 9, 0)), []
         )
 
-    def test_una_sessione_riprogrammata_non_viene_chiusa(self) -> None:
-        """Se qualcuno l'ha gia' spostata a mano, non e' una dimenticanza."""
+    def test_a_rescheduled_session_is_not_closed(self) -> None:
+        """If somebody already moved it by hand, it is not an oversight."""
         vecchia = self.sessione("2026-01-10")
         self.sessione("2026-02-10", sostituisce=vecchia)
         self.assertEqual(
-            regole.sessioni_da_chiudere(self.conn, datetime(2026, 1, 15, 9, 0)), []
+            rules.sessions_to_close(self.conn, datetime(2026, 1, 15, 9, 0)), []
         )
 
-    def test_e_idempotente(self) -> None:
-        """Due avvii di fila non devono cambiare niente la seconda volta."""
+    def test_is_idempotent(self) -> None:
+        """Two runs in a row must change nothing the second time."""
         self.sessione("2026-01-10")
         adesso = datetime(2026, 1, 15, 9, 0)
-        self.assertEqual(len(regole.chiudi_sessioni_passate(self.conn, adesso)), 1)
-        self.assertEqual(regole.chiudi_sessioni_passate(self.conn, adesso), [])
+        self.assertEqual(len(rules.close_past_sessions(self.conn, adesso)), 1)
+        self.assertEqual(rules.close_past_sessions(self.conn, adesso), [])
 
-    def test_non_sovrascrive_un_esito_gia_scritto_da_una_persona(self) -> None:
+    def test_does_not_overwrite_an_outcome_set_by_a_person(self) -> None:
         vecchia = self.sessione("2026-01-10")
         self.conn.execute(
             "UPDATE sessione SET esito_verifica = 'Da ripetere' WHERE id = ?", (vecchia,)
         )
         self.conn.commit()
-        regole.chiudi_sessioni_passate(self.conn, datetime(2026, 1, 15, 9, 0))
+        rules.close_past_sessions(self.conn, datetime(2026, 1, 15, 9, 0))
         riga = self.conn.execute(
             "SELECT esito_verifica FROM sessione WHERE id = ?", (vecchia,)
         ).fetchone()
         self.assertEqual(riga["esito_verifica"], "Da ripetere")
 
 
-class SovrapposizioniTests(BaseConPiano):
-    def test_la_risorsa_non_puo_essere_in_due_posti(self) -> None:
+class OverlapTests(PlanFixture):
+    def test_the_trainee_cannot_be_in_two_places(self) -> None:
         self.sessione("2026-02-02", "09:00", "11:00")
-        conflitti = regole.sovrapposizioni(
+        conflitti = rules.overlaps(
             self.conn, self.piano, "2026-02-02", "10:00", "12:00"
         )
         self.assertEqual(len(conflitti), 1)
         self.assertEqual(conflitti[0]["motivo"], "risorsa")
 
-    def test_orari_che_si_toccano_non_sono_sovrapposti(self) -> None:
+    def test_touching_times_do_not_overlap(self) -> None:
         self.sessione("2026-02-02", "09:00", "11:00")
         self.assertEqual(
-            regole.sovrapposizioni(self.conn, self.piano, "2026-02-02", "11:00", "12:00"),
+            rules.overlaps(self.conn, self.piano, "2026-02-02", "11:00", "12:00"),
             [],
         )
 
-    def test_annullate_e_rinviate_non_danno_conflitto(self) -> None:
+    def test_cancelled_and_postponed_do_not_clash(self) -> None:
         self.sessione("2026-02-02", "09:00", "11:00", stato="Annullata")
         self.sessione("2026-02-02", "09:00", "11:00", stato="Rinviata")
         self.assertEqual(
-            regole.sovrapposizioni(self.conn, self.piano, "2026-02-02", "09:30", "10:30"),
+            rules.overlaps(self.conn, self.piano, "2026-02-02", "09:30", "10:30"),
             [],
         )
 
-    def test_un_tutor_impegnato_su_un_altro_piano(self) -> None:
+    def test_a_tutor_busy_on_another_plan(self) -> None:
         altra_persona = self.conn.execute(
             "INSERT INTO persona (nome, cognome) VALUES ('Luca', 'Gialli')"
         ).lastrowid
@@ -247,32 +247,32 @@ class SovrapposizioniTests(BaseConPiano):
         self.sessione("2026-02-02", "09:00", "11:00", modulo=None,
                       tutor=[self.tutor], piano=altro_piano)
 
-        conflitti = regole.sovrapposizioni(
-            self.conn, self.piano, "2026-02-02", "10:00", "12:00", tutor=[self.tutor]
+        conflitti = rules.overlaps(
+            self.conn, self.piano, "2026-02-02", "10:00", "12:00", tutors=[self.tutor]
         )
         self.assertEqual(len(conflitti), 1)
         self.assertEqual(conflitti[0]["motivo"], "tutor")
 
-    def test_si_puo_escludere_la_sessione_che_si_sta_modificando(self) -> None:
+    def test_the_session_being_edited_can_be_excluded(self) -> None:
         identificativo = self.sessione("2026-02-02", "09:00", "11:00")
         self.assertEqual(
-            regole.sovrapposizioni(
+            rules.overlaps(
                 self.conn, self.piano, "2026-02-02", "09:00", "11:00",
-                escludi_sessione=identificativo,
+                ignore_session=identificativo,
             ),
             [],
         )
 
 
-class ColoriAreeTests(BaseConPiano):
-    def test_ogni_area_riceve_un_colore_e_non_cambia_piu(self) -> None:
-        regole.assicura_colori_aree(self.conn)
+class AreaColourTests(PlanFixture):
+    def test_every_area_gets_a_colour_and_keeps_it(self) -> None:
+        rules.ensure_area_colours(self.conn)
         colori = {r["nome"]: r["colore"]
                   for r in self.conn.execute("SELECT nome, colore FROM area")}
         self.assertIn("Generale", colori)
         self.assertIn("IT", colori)
 
-        regole.assicura_colori_aree(self.conn)   # seconda volta: stabile
+        rules.ensure_area_colours(self.conn)   # seconda volta: stabile
         di_nuovo = {r["nome"]: r["colore"]
                     for r in self.conn.execute("SELECT nome, colore FROM area")}
         self.assertEqual(colori, di_nuovo)

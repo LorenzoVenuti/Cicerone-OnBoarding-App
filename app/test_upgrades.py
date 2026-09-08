@@ -1,9 +1,9 @@
-"""Test dell'aggiornamento dell'archivio da una versione dell'app alla nuova.
+"""Tests for upgrading the archive from one version of the app to the next.
 
-L'archivio sta sul computer di chi usa il programma ed e' l'unica copia dei
-piani, delle sessioni e dello storico degli invii. Una versione nuova dell'app
-deve adattarlo senza perdere niente: questi test servono a non scoprire il
-contrario sul suo computer.
+The archive sits on the computer of whoever uses the program and is the only
+copy of the plans, the sessions and the delivery history. A new version has to
+adapt it without losing anything: these tests exist so nobody discovers the
+opposite on that computer.
 """
 
 import shutil
@@ -14,8 +14,8 @@ from pathlib import Path
 
 from app import db
 
-# Lo schema com'era prima delle colonne aggiunte al registro mail: serve a
-# fabbricare un archivio "vecchio" credibile.
+# The schema as it was before the delivery-log columns were added: used to
+# build a believable "old" archive.
 SCHEMA_VECCHIO = """
 CREATE TABLE persona (
     id INTEGER PRIMARY KEY, nome TEXT NOT NULL, cognome TEXT NOT NULL,
@@ -31,7 +31,7 @@ CREATE TABLE impostazione (chiave TEXT PRIMARY KEY, valore TEXT);
 """
 
 
-class AggiornamentoTests(unittest.TestCase):
+class UpgradeTests(unittest.TestCase):
     def setUp(self) -> None:
         self.cartella = Path(tempfile.mkdtemp())
         self.percorso = self.cartella / "piano.db"
@@ -55,17 +55,17 @@ class AggiornamentoTests(unittest.TestCase):
         conn.commit()
         conn.close()
 
-    def test_archivio_nuovo_nasce_gia_aggiornato(self) -> None:
-        conn = db.inizializza(self.percorso)
+    def test_a_new_archive_is_born_up_to_date(self) -> None:
+        conn = db.initialise(self.percorso)
         versione = conn.execute("PRAGMA user_version").fetchone()[0]
-        self.assertEqual(versione, db.VERSIONE_SCHEMA)
+        self.assertEqual(versione, db.SCHEMA_VERSION)
         conn.close()
 
-    def test_aggiornando_non_si_perde_niente(self) -> None:
-        """Il test che conta: dati e storico devono sopravvivere."""
+    def test_upgrading_loses_nothing(self) -> None:
+        """The one that matters: data and history must survive."""
         self._archivio_vecchio()
 
-        conn = db.inizializza(self.percorso)
+        conn = db.initialise(self.percorso)
 
         persona = conn.execute("SELECT * FROM persona").fetchone()
         self.assertEqual(persona["nome"], "Anna")
@@ -75,80 +75,80 @@ class AggiornamentoTests(unittest.TestCase):
         self.assertEqual(voce["oggetto"], "Convocazione")
         self.assertEqual(voce["corpo"], "testo della mail")
         self.assertEqual(voce["esito"], "inviata")
-        # la colonna nuova esiste e viene riempita con quello che si sapeva
+        # the new column exists and is filled with what was already known
         self.assertEqual(voce["registrata_il"], "2026-01-02T10:00:00")
         conn.close()
 
-    def test_aggiornando_si_mette_da_parte_una_copia(self) -> None:
+    def test_upgrading_puts_a_copy_aside(self) -> None:
         self._archivio_vecchio()
-        conn = db.inizializza(self.percorso)
+        conn = db.initialise(self.percorso)
         conn.close()
 
-        copie = list(db.cartella_copie(self.percorso).glob("*.db"))
+        copie = list(db.backup_folder(self.percorso).glob("*.db"))
         self.assertEqual(len(copie), 1)
         self.assertIn("aggiornamento", copie[0].name)
 
-        # e la copia contiene davvero i dati di prima
+        # and the copy really does hold the earlier data
         vecchio = sqlite3.connect(copie[0])
         self.assertEqual(
             vecchio.execute("SELECT COUNT(*) FROM mail_log").fetchone()[0], 1
         )
         vecchio.close()
 
-    def test_riaprire_l_archivio_non_lo_tocca_di_nuovo(self) -> None:
-        """Aprire l'app due volte non deve rimigrare, ne' rifare copie."""
+    def test_reopening_the_archive_does_not_touch_it_again(self) -> None:
+        """Opening the app twice must not migrate again, nor copy again."""
         self._archivio_vecchio()
-        db.inizializza(self.percorso).close()
-        db.inizializza(self.percorso).close()
+        db.initialise(self.percorso).close()
+        db.initialise(self.percorso).close()
 
-        copie = list(db.cartella_copie(self.percorso).glob("*aggiornamento*.db"))
+        copie = list(db.backup_folder(self.percorso).glob("*aggiornamento*.db"))
         self.assertEqual(len(copie), 1)
 
-        conn = db.connetti(self.percorso)
-        self.assertEqual(migrate := db.migra(conn, self.percorso), [])
+        conn = db.connect(self.percorso)
+        self.assertEqual(migrate := db.migrate(conn, self.percorso), [])
         self.assertEqual(migrate, [])
         conn.close()
 
-    def test_una_migrazione_puo_essere_rieseguita_senza_danno(self) -> None:
-        """Se il numero di versione si perde, riapplicarla non deve rompere."""
+    def test_a_migration_can_be_rerun_safely(self) -> None:
+        """If the version number is lost, reapplying must not break anything."""
         self._archivio_vecchio()
-        conn = db.inizializza(self.percorso)
-        conn.execute("PRAGMA user_version = 0")   # come se non fosse mai girata
+        conn = db.initialise(self.percorso)
+        conn.execute("PRAGMA user_version = 0")   # as if it had never run
         conn.commit()
 
-        db.migra(conn, self.percorso)
+        db.migrate(conn, self.percorso)
 
         voce = conn.execute("SELECT * FROM mail_log").fetchone()
         self.assertEqual(voce["oggetto"], "Convocazione")
         conn.close()
 
 
-class CopieTests(unittest.TestCase):
+class BackupTests(unittest.TestCase):
     def setUp(self) -> None:
         self.cartella = Path(tempfile.mkdtemp())
         self.percorso = self.cartella / "piano.db"
-        db.inizializza(self.percorso).close()
+        db.initialise(self.percorso).close()
 
     def tearDown(self) -> None:
         shutil.rmtree(self.cartella, ignore_errors=True)
 
-    def test_una_copia_al_giorno_e_non_di_piu(self) -> None:
-        self.assertIsNotNone(db.copia_giornaliera(self.percorso))
-        self.assertIsNone(db.copia_giornaliera(self.percorso))
+    def test_one_backup_a_day_and_no_more(self) -> None:
+        self.assertIsNotNone(db.daily_backup(self.percorso))
+        self.assertIsNone(db.daily_backup(self.percorso))
 
-    def test_le_copie_vecchie_vengono_buttate(self) -> None:
-        cartella = db.cartella_copie(self.percorso)
+    def test_old_backups_are_discarded(self) -> None:
+        cartella = db.backup_folder(self.percorso)
         cartella.mkdir(parents=True, exist_ok=True)
-        for i in range(db.COPIE_DA_TENERE + 4):
+        for i in range(db.BACKUPS_TO_KEEP + 4):
             (cartella / f"piano-2026010{i:02d}-000000-avvio.db").write_bytes(b"")
 
-        db.copia_archivio(self.percorso, motivo="prova")
+        db.backup_database(self.percorso, reason="prova")
 
         rimaste = list(cartella.glob("piano-*.db"))
-        self.assertEqual(len(rimaste), db.COPIE_DA_TENERE)
+        self.assertEqual(len(rimaste), db.BACKUPS_TO_KEEP)
 
-    def test_un_archivio_inesistente_non_produce_copie(self) -> None:
-        self.assertIsNone(db.copia_archivio(self.cartella / "mai-esistito.db"))
+    def test_a_missing_archive_produces_no_backup(self) -> None:
+        self.assertIsNone(db.backup_database(self.cartella / "mai-esistito.db"))
 
 
 if __name__ == "__main__":

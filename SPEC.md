@@ -1,165 +1,158 @@
-# Piano Formazione — app di gestione onboarding
+# Cicerone — functional specification
 
-Sostituisce un foglio di calcolo compilato a mano con un'applicazione
-desktop. Il foglio resta solo come sorgente dei dati iniziali: dopo la
-migrazione non si tocca piu'.
+Replaces a hand-filled spreadsheet with a desktop application. The spreadsheet
+remains only as the source of the initial data: after the migration it is not
+touched again.
 
-## Origine
+## Origin
 
-La richiesta di partenza aveva tre punti:
+The original request had three points:
 
-1. collegamento con la mail per gli inviti a calendario;
-2. automatismo che a fine giornata segna la sessione verde (fatta) e OK (superata);
-3. garanzia che cambiare il nome di un tutor non rompa il file.
+1. a link with the mail program, for calendar invitations;
+2. an automatic step that at the end of the day marks a session as held and
+   passed;
+3. a guarantee that renaming a tutor does not break the file.
 
-Il punto 3 nell'Excel e' un problema reale: il nome del tutor e' una stringa usata
-come chiave dalle formule. Nell'app i tutor sono un'anagrafica con id proprio, e
-rinominare una persona non ha effetti collaterali.
+Point 3 was a real problem in the spreadsheet: the tutor's name was a string
+used as a key by the formulas. In the app tutors are records with their own id,
+and renaming somebody has no side effects.
 
-## Decisioni prese
+## Decisions taken
 
-| Tema | Decisione |
+| Topic | Decision |
 |---|---|
-| Ambito | Multi-risorsa: catalogo moduli riutilizzabile, un piano per assunto |
-| Invito calendario | SI, invito .ics allegato alla mail (dal 2026-09-08; prima era esclusa). Ogni sessione ha un `UID` suo: spostare o disdire tocca **quell'** appuntamento, non un altro fra le stesse persone. Lo spostamento aggiorna l'invito esistente alzando `SEQUENCE`, non disdice e ricrea. Resta escluso Microsoft Graph, che richiederebbe credenziali e l'IT |
-| Auto-completamento | Alla riapertura del programma. Segna `Svolta` + esito `OK` |
-| Piattaforma | Windows, Outlook desktop installato |
-| Invio | Automatico, via Outlook COM (nessuna credenziale). Fallback SMTP |
+| Scope | Multi-trainee: a reusable module catalogue, one plan per hire |
+| Calendar invitation | Yes, an `.ics` attached to the message (since 2026-09-08; previously ruled out). Every session owns a `UID`: moving or cancelling touches **that** appointment, never another one between the same people. A move updates the existing invitation by raising `SEQUENCE`; it does not cancel and recreate. Microsoft Graph stays excluded: it would need credentials and IT involvement |
+| Automatic completion | On application start-up. Marks `Svolta` plus outcome `OK` |
+| Platforms | macOS and Windows, driving the mail program already installed |
+| Delivery | Through the installed mail client (no credentials). SMTP as a possible fallback |
 
-Nota ISO: segnare l'esito `OK` in automatico attribuisce un giudizio di efficacia
-che nessuno ha espresso. La scelta e' stata confermata esplicitamente; le sessioni chiuse
-in automatico restano marcate `chiusa_automaticamente` nel database, cosi' una
-vista di revisione e' aggiungibile in seguito senza migrazioni.
+A note on certification: setting the outcome `OK` automatically attributes a
+judgement of effectiveness that nobody expressed. The choice was confirmed
+explicitly; sessions closed automatically stay flagged
+`chiusa_automaticamente` in the database, so a review screen can be added later
+without a migration.
 
-## Modello dati
+## Data model
 
     persona            id, nome, cognome, email, reparto, attivo
-                       -> tutor, responsabili e risorse sono tutte persone
+                       -> tutors, managers and trainees are all people
 
     risorsa            id, persona_id, reparto, mansione, responsabile_id,
                        tutor_principale_id, data_inizio, motivo
-                       motivo: nuova funzione | cambio funzione | addestramento | formazione
 
     modulo_catalogo    codice (M01..M21), area, titolo, modalita_default,
                        tutor_referente_default_id, ordine
-                       -> il template da cui nasce ogni nuovo piano
+                       -> the template every new plan is created from
+
+    area               nome, colore, ordine
+                       -> the colour shown in the agenda and on the calendar
 
     piano              id, risorsa_id, creato_il, chiuso_il
     piano_modulo       id, piano_id, codice, area, titolo, applicabile (SI/NO),
                        modalita, tutor_referente_id,
                        entro_il, verifica_chiusura, verifica_efficacia,
                        data_verifica, esito
-                       -> le ultime cinque sono le colonne gialle ISO, a mano
+                       -> the last five are the form's manual columns
 
     sessione           id, piano_id, piano_modulo_id (nullable), data,
                        ora_inizio, ora_fine, dettaglio, stato, esito_verifica,
-                       note, chiusa_automaticamente, creata_il, modificata_il
+                       note, chiusa_automaticamente, sostituisce_id,
+                       creata_il, modificata_il,
+                       uid_calendario, revisione_calendario
                        stato: Pianificata | Confermata | Svolta | Rinviata | Annullata
 
     sessione_tutor     sessione_id, persona_id
-                       -> n-a-n: nell'Excel i tutor di una sessione stavano
-                          tutti in una cella sola, separati da virgola
+                       -> many-to-many: in the spreadsheet every tutor of a
+                          session sat in a single cell, comma separated
 
     mail_log           id, sessione_id, tipo, destinatari, oggetto, corpo,
-                       registrata_il, inviata_il, esito, errore, senza_email
+                       registrata_il, inviata_il, esito, errore, senza_email,
+                       calendario
                        tipo: nuova | spostamento | annullamento
 
     impostazione       chiave, valore
                        invio_email_automatico: 0 (default) | 1
+                       canale_mail, mittente_mail, codice_modulo
 
-## Regole di calcolo
+Names are in Italian because they are domain identifiers written inside every
+archive; the README carries the glossary.
 
-Direzione unica: le sessioni sono i fatti, il piano e' derivato. Nessun valore
-aggregato viene scritto a mano.
+## Calculation rules
 
-Per ogni modulo del piano:
+One direction only: sessions are the facts, the plan is derived. No aggregate
+value is ever written by hand.
 
-    sessioni_valide  = sessioni del modulo con stato != Annullata, Rinviata
-    sess_pianificate = conteggio di sessioni_valide
-    sess_svolte      = conteggio sessioni con stato = Svolta
-    ore_svolte       = somma (ora_fine - ora_inizio) delle sole Svolta
-    dal / al         = data minima / massima di sessioni_valide
+For each module in the plan:
 
-    stato modulo:
-        applicabile = NO            -> N.A.
-        sess_pianificate = 0        -> Da pianificare
-        sess_svolte >= pianificate  -> Completata
-        sess_svolte > 0             -> In corso
-        altrimenti                  -> Pianificata
+    valid_sessions = the module's sessions whose state is not Annullata, Rinviata
+    planned        = count of valid_sessions
+    done           = count of sessions with state Svolta
+    hours_done     = sum of (ora_fine - ora_inizio) over the Svolta ones
+    from / to      = minimum / maximum date of valid_sessions
 
-Colori (dalla formattazione condizionale dell'Excel, da conservare nella UI):
+    module state:
+        applicabile = NO       -> N.A.
+        planned = 0            -> Da pianificare
+        done >= planned        -> Completata
+        done > 0               -> In corso
+        otherwise              -> Pianificata
 
-    Svolta / Completata   verde   #C6EFCE
-    In corso              azzurro #BDD7EE
-    Rinviata              arancio #FCE4D6
-    Da pianificare        pesca   #FCE4D6
-    Annullata             rosa    #F2DCDB
-    N.A.                  grigio  #D9D9D9
+Colours (inherited from the spreadsheet's conditional formatting, kept in the
+interface): Svolta and Completata green `#C6EFCE`, In corso blue `#BDD7EE`,
+Rinviata and Da pianificare orange `#FCE4D6`, Annullata pink `#F2DCDB`, N.A.
+grey `#D9D9D9`.
 
-## Auto-completamento
+## Automatic completion
 
-Gira all'avvio dell'app, non a un orario fisso: il PC alle 18:00 puo' essere spento.
+Runs when the app starts, not at a fixed hour: at 18:00 the computer may be off.
 
-Una sessione viene chiusa automaticamente se, tutte insieme:
+A session is closed automatically if, all at once:
 
-- stato e' `Pianificata` o `Confermata`;
-- e' passata: `data < oggi`, oppure `data = oggi` e sono almeno le 18:00;
-- non e' stata riprogrammata (nessuna modifica di data/orario dopo la sua creazione)
-  ne' sostituita da una sessione nuova sullo stesso modulo con data successiva.
+- its state is `Pianificata` or `Confermata`;
+- it is in the past: `data < today`, or `data = today` and it is past 18:00;
+- it has not been rescheduled, and no newer session replaces it.
 
-Effetto: stato -> `Svolta`, esito_verifica -> `OK`, `chiusa_automaticamente` -> vero.
-All'avvio l'app mostra il riepilogo di cosa ha chiuso, cosi' resta verificabile.
+Effect: state becomes `Svolta`, `esito_verifica` becomes `OK`,
+`chiusa_automaticamente` becomes true. At start-up the app reports what it
+closed, so the step stays auditable.
 
-## Mail
+## Messages
 
-Tre eventi generano una mail, sempre agli stessi destinatari: i tutor della
-sessione e la risorsa in formazione.
+Three events produce a message, always to the same recipients: the session's
+tutors and the trainee.
 
-- nuova sessione       -> giorno, orario, modulo, tutor
-- spostamento          -> giorno e orario VECCHI e NUOVI, affiancati
-- annullamento         -> giorno e orario annullati, motivo se presente
+- new session      -> day, time, module, tutors
+- move             -> old **and** new day and time, side by side
+- cancellation     -> the day and time called off
 
-Il template testuale lo fornisce chi usa il programma. Fino ad allora si usa un segnaposto,
-tenuto in un file separato e modificabile senza toccare il codice.
+Each carries a calendar invitation. The message text comes from
+`template_mail/`, editable without touching the code.
 
-La consegna automatica e' controllata dal toggle **Invio automatico email**
-nella schermata Mail. Il default e' OFF: in questo stato la composizione e la
-registrazione proseguono, ma nessun sender viene chiamato e la voce resta nel
-registro con esito `invio_disattivato`. Gli esiti principali sono `inviata`,
-`invio_disattivato` ed `errore`.
+Automatic delivery is controlled by the toggle in the mail screen. The default
+is off: composition and logging still happen, but no sender is called and the
+entry stays in the log with outcome `invio_disattivato`. The main outcomes are
+`inviata`, `invio_disattivato` and `errore`.
 
-Il registro conserva `registrata_il`, cioe' il momento di registrazione della
-notifica. `inviata_il` viene valorizzato solo dopo una consegna riuscita.
-Le voci bloccate o fallite possono essere riprovate. Il retry usa oggetto,
-corpo e destinatari salvati nella voce originale e la aggiorna senza creare
-duplicati. La cancellazione dal registro elimina soltanto `mail_log`.
+The log keeps `registrata_il`, the moment the notification was recorded.
+`inviata_il` is only set after a successful delivery. Blocked or failed entries
+can be retried; a retry reuses the subject, body, recipients and invitation
+stored on the original entry and updates it in place rather than creating a
+duplicate. Deleting from the log removes only the `mail_log` row.
 
-Gli indirizzi della risorsa e di tutti i tutor associati vengono inclusi e
-deduplicati in modo case-insensitive, mantenendo l'ordine.
-Valori vuoti o composti soltanto da spazi sono considerati email mancanti; la
-validazione sintattica completa degli indirizzi non fa parte di questo MVP.
+The trainee's address and every tutor's are included and de-duplicated
+case-insensitively, preserving order. Empty or whitespace-only values count as
+missing addresses; full syntactic validation of addresses is out of scope.
 
-Invio: `outlook.py` via COM su Windows. Su Mac, in sviluppo, l'invio scrive su
-file invece di partire davvero, cosi' il resto e' testabile.
+Delivery goes through the installed mail client: COM on Windows, AppleScript on
+macOS. When no client is configured the message is written to
+`dati/mail_non_inviate/` instead of being sent, so nothing is lost.
 
-## Dati che il programma non puo' inventare
+## Still open
 
-1. Indirizzi email dei tutor e della risorsa. Senza, l'automazione non ha
-   destinatari. E' il blocco piu' urgente.
-2. Il template delle tre mail.
-3. Tre sessioni dell'agenda originale non hanno un modulo assegnato: vanno
-   attribuite dall'app.
-4. Cinque moduli non hanno nessuna sessione e risultano `Da pianificare`:
-   sicurezza, policy, software gestionali, clienti estero e una delle linee
-   di prodotto.
-5. Il modulo del sistema qualita' va ancora stampato e firmato? Se si', l'app
-   deve esportarlo in PDF con lo stesso impaginato.
-
-## Dati di partenza
-
-Il foglio di calcolo di origine contiene il piano di una persona reale e non fa parte
-del repository. Struttura: una testata anagrafica, 21 moduli formativi M01-M21,
-37 sessioni distribuite su cinque settimane, 21 tutor.
-
-Per lavorare senza dati reali: `python semina_esempio.py` popola un archivio con
-nomi inventati e la stessa struttura.
+1. The email addresses of tutors and trainees. Without them the automation has
+   no recipients.
+2. The final text of the three messages.
+3. Sessions with no module assigned have to be attributed from the app.
+4. Whether the form still has to be printed and signed: if so, the app exports
+   it to PDF with the same layout.
