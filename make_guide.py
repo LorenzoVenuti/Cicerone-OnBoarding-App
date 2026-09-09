@@ -114,7 +114,7 @@ def build() -> Path:
     )
 
     pdf.heading("1. Installare il programma")
-    pdf.step(1, "Copiare sul computer il file Cicerone-v1.0.zip che si trova "
+    pdf.step(1, "Copiare sul computer il file zip di Cicerone che si trova "
                  "sulla chiavetta. Conviene metterlo sulla Scrivania.")
     pdf.step(2, "Fare doppio clic sul file: comparira' accanto l'icona blu di "
                  "Cicerone.")

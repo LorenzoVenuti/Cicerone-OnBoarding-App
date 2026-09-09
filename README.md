@@ -23,7 +23,7 @@ Nothing to install: no Python, no runtime. You get one package and double-click
 it. Step-by-step instructions, in Italian, are in
 **[docs/istruzioni.pdf](docs/istruzioni.pdf)**.
 
-1. Unzip `Cicerone-v1.0.zip` and move **Cicerone** where you keep your programs.
+1. Unzip `Cicerone-v1.1.zip` and move **Cicerone** where you keep your programs.
 2. Open it.
 3. On first run the app asks **which mail program** the notifications should be
    sent from, and lets you send a test before confirming.
@@ -186,7 +186,7 @@ attaches to files make the signing fail.
 
 To hand it over, compress it rather than copying the folder:
 
-    ditto -c -k --keepParent dist/Cicerone.app Cicerone-v1.0.zip
+    ditto -c -k --keepParent dist/Cicerone.app Cicerone-v1.1.zip
 
 A USB stick formatted for Windows (FAT32 or exFAT) does not preserve the execute
 permission: copying the open package onto one leaves it unable to start on the
