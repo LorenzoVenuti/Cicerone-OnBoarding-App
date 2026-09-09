@@ -121,6 +121,51 @@ def add_module_to_open_plans(conn: sqlite3.Connection, code: str) -> int:
     return added
 
 
+def align_open_plans_with_catalogue(conn: sqlite3.Connection) -> dict[str, int]:
+    """Brings every open plan back in line with the catalogue. Idempotent.
+
+    Two things drift apart, and both were reported from real use:
+
+    - a module catalogued *before* this existed never reached the plans already
+      created, and there is no way to add it from the interface, so it stayed
+      out of reach for good;
+    - renaming a module in the catalogue left the plans showing the old title,
+      because the plan holds a copy.
+
+    Only `titolo` and `area` are realigned, and that is not an arbitrary choice:
+    they are the only columns of `piano_modulo` the interface does **not** let
+    you edit per plan. `applicabile`, `modalita` and `tutor_referente_id` are
+    per-plan decisions, and overwriting them from the catalogue would silently
+    throw away somebody's work. The form's verification columns are untouched
+    for the same reason.
+
+    Closed plans are never touched: they are signed documents.
+
+    Runs at start-up like `ensure_area_colours`, so an archive that predates
+    this repairs itself without a hand-written migration.
+    """
+    added = 0
+    for row in conn.execute("SELECT codice FROM modulo_catalogo ORDER BY ordine"):
+        added += add_module_to_open_plans(conn, row["codice"])
+
+    updated = conn.execute(
+        """
+        UPDATE piano_modulo
+        SET titolo = (SELECT c.titolo FROM modulo_catalogo c
+                      WHERE c.codice = piano_modulo.codice),
+            area   = (SELECT c.area   FROM modulo_catalogo c
+                      WHERE c.codice = piano_modulo.codice)
+        WHERE piano_id IN (SELECT id FROM piano WHERE chiuso_il IS NULL)
+          AND EXISTS (SELECT 1 FROM modulo_catalogo c
+                      WHERE c.codice = piano_modulo.codice
+                        AND (c.titolo IS NOT piano_modulo.titolo
+                             OR c.area IS NOT piano_modulo.area))
+        """
+    ).rowcount
+    conn.commit()
+    return {"added": added, "updated": updated}
+
+
 def duration_hours(start_time: str, end_time: str) -> float:
     """Length in hours between two 'HH:MM' times."""
     start = datetime.strptime(start_time, "%H:%M")

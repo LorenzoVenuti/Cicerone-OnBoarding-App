@@ -85,8 +85,8 @@ if MACOS:
         info_plist={
             "CFBundleName": "Cicerone",
             "CFBundleDisplayName": "Cicerone",
-            "CFBundleShortVersionString": "1.1.0",
-            "CFBundleVersion": "1.1.0",
+            "CFBundleShortVersionString": "1.1.1",
+            "CFBundleVersion": "1.1.1",
             "LSMinimumSystemVersion": "12.0",
             "NSHighResolutionCapable": True,
             # Without this sentence macOS denies control of the mail program

@@ -356,5 +356,109 @@ class ModuleReachesOpenPlansTests(PlanFixture):
         self.assertEqual("Da pianificare", row["stato"])
 
 
+class CatalogueAlignmentTests(PlanFixture):
+    """Repairing plans that drifted from the catalogue, reported from real use.
+
+    The fixture's plan holds M01 and M02 and no catalogue exists yet, which is
+    exactly the shape of an archive created before the catalogue was filled.
+    """
+
+    def _catalogue(self, code: str, title: str, area: str = "Generale") -> None:
+        self.conn.execute(
+            """INSERT INTO modulo_catalogo (codice, area, titolo, modalita_default, ordine)
+               VALUES (?, ?, ?, 'Spiegazione', 1)""",
+            (code, area, title),
+        )
+        self.conn.commit()
+
+    def test_a_module_catalogued_before_the_fix_is_recovered(self) -> None:
+        """It was out of reach for good: the plan existed, nothing added it."""
+        self._catalogue("M09", "Ciclo passivo")
+        outcome = rules.align_open_plans_with_catalogue(self.conn)
+        self.assertEqual(1, outcome["added"])
+        codes = [r["codice"] for r in self.conn.execute(
+            "SELECT codice FROM piano_modulo WHERE piano_id = ? ORDER BY ordine",
+            (self.piano,),
+        )]
+        self.assertIn("M09", codes)
+
+    def test_a_renamed_module_reaches_the_plans(self) -> None:
+        self._catalogue("M01", "Presentazione rivista")
+        outcome = rules.align_open_plans_with_catalogue(self.conn)
+        self.assertEqual(1, outcome["updated"])
+        self.assertEqual(
+            "Presentazione rivista",
+            self.conn.execute(
+                "SELECT titolo FROM piano_modulo WHERE id = ?", (self.modulo,)
+            ).fetchone()["titolo"],
+        )
+
+    def test_an_empty_title_is_repaired(self) -> None:
+        """The case seen in the field: propagated blank, renamed afterwards."""
+        self.conn.execute(
+            "UPDATE piano_modulo SET titolo = '' WHERE id = ?", (self.modulo,)
+        )
+        self.conn.commit()
+        self._catalogue("M01", "Presentazione")
+        rules.align_open_plans_with_catalogue(self.conn)
+        self.assertEqual(
+            "Presentazione",
+            self.conn.execute(
+                "SELECT titolo FROM piano_modulo WHERE id = ?", (self.modulo,)
+            ).fetchone()["titolo"],
+        )
+
+    def test_per_plan_choices_are_never_overwritten(self) -> None:
+        """applicabile, modalita and the tutor are decisions taken on the plan."""
+        self.conn.execute(
+            """UPDATE piano_modulo SET applicabile = 'NO', modalita = 'Affiancamento',
+                   tutor_referente_id = ?, esito = 'OK' WHERE id = ?""",
+            (self.tutor, self.modulo),
+        )
+        self.conn.commit()
+        self._catalogue("M01", "Presentazione rivista")
+        rules.align_open_plans_with_catalogue(self.conn)
+
+        row = self.conn.execute(
+            "SELECT * FROM piano_modulo WHERE id = ?", (self.modulo,)
+        ).fetchone()
+        self.assertEqual("Presentazione rivista", row["titolo"])   # questo si'
+        self.assertEqual("NO", row["applicabile"])                 # questi no
+        self.assertEqual("Affiancamento", row["modalita"])
+        self.assertEqual(self.tutor, row["tutor_referente_id"])
+        self.assertEqual("OK", row["esito"])
+
+    def test_a_closed_plan_is_left_alone(self) -> None:
+        self.conn.execute(
+            "UPDATE piano SET chiuso_il = '2026-02-01T09:00:00' WHERE id = ?",
+            (self.piano,),
+        )
+        self.conn.commit()
+        self._catalogue("M01", "Presentazione rivista")
+        outcome = rules.align_open_plans_with_catalogue(self.conn)
+        self.assertEqual({"added": 0, "updated": 0}, outcome)
+        self.assertEqual(
+            "Presentazione",
+            self.conn.execute(
+                "SELECT titolo FROM piano_modulo WHERE id = ?", (self.modulo,)
+            ).fetchone()["titolo"],
+        )
+
+    def test_it_is_idempotent(self) -> None:
+        """It runs at every start-up: the second time must change nothing."""
+        self._catalogue("M09", "Ciclo passivo")
+        rules.align_open_plans_with_catalogue(self.conn)
+        self.assertEqual(
+            {"added": 0, "updated": 0},
+            rules.align_open_plans_with_catalogue(self.conn),
+        )
+
+    def test_an_empty_catalogue_changes_nothing(self) -> None:
+        self.assertEqual(
+            {"added": 0, "updated": 0},
+            rules.align_open_plans_with_catalogue(self.conn),
+        )
+
+
 if __name__ == "__main__":
     unittest.main()

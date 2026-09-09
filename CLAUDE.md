@@ -93,15 +93,29 @@ broke the sheet: a real problem, reported by the user. Every reference to a
 person goes through `persona.id`. A session can have several tutors: the
 relation is `sessione_tutor`, not a text field.
 
-**4b. A plan is a copy of the catalogue, not a view of it.**
-`piano_modulo` is filled from `modulo_catalogo` when the plan is created, and
-from then on the two are independent: a closed plan is a certification document
-and must not change under the person who signed it. The copy left a hole,
-though - fill the catalogue after creating the first trainee, which is the
-natural order on an empty archive, and that plan stayed empty with nothing to
-schedule. So `rules.add_module_to_open_plans` gives a newly catalogued module to
-every plan whose `chiuso_il` is null, and to no closed one. Editing or deleting
-a catalogue module still does not touch existing plans, deliberately.
+**4b. A plan is a copy of the catalogue, and an open plan is kept in line
+with it.**
+`piano_modulo` is filled from `modulo_catalogo` when the plan is created. A
+**closed** plan then goes its own way for good: it is a certification document
+and must not change under the person who signed it.
+
+An **open** plan is realigned by `rules.align_open_plans_with_catalogue`, which
+runs at start-up and is idempotent, so an old archive repairs itself without a
+hand-written migration. It does two things, both of which came from real use:
+it gives an open plan the catalogue modules it lacks - fill the catalogue after
+creating the first trainee, the natural order on an empty archive, and the plan
+would otherwise stay empty with nothing to schedule - and it carries across a
+changed title or area, which the plan would otherwise keep showing stale.
+
+**Only `titolo` and `area` are realigned**, and the reason is not arbitrary:
+they are the only columns of `piano_modulo` the interface does not let you edit
+per plan (see `ModulePatch`). `applicabile`, `modalita`, `tutor_referente_id`
+and the form's verification columns are per-plan decisions; overwriting them
+from the catalogue would silently discard somebody's work. If you ever make
+title editable per plan, this alignment has to stop touching it.
+
+Deleting a catalogue module still leaves existing plans alone: a plan already
+using it has to keep it.
 
 **5. Sessions are never deleted.**
 They are cancelled, staying in the plan with state `Annullata`. The training
@@ -201,7 +215,7 @@ records of real people end up in the database.
 
     .venv/bin/python -m unittest discover -s app -p "test_*.py"
 
-Ninety tests cover the plan calculation, automatic closing, clash detection,
+A hundred-odd tests cover the plan calculation, automatic closing, clash detection,
 delivery policy, the macOS channels and archive upgrades. If you touch
 `rules.py`, add to `app/test_rules.py`.
 

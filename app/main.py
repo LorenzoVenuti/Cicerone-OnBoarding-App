@@ -32,6 +32,11 @@ db.daily_backup()
 # Every area needs a colour: the ones without get theirs here, at start-up.
 rules.ensure_area_colours(conn)
 
+# Open plans catch up with the catalogue: modules catalogued before a plan
+# existed, and titles changed since. An archive from an older version repairs
+# itself here, without a hand-written migration.
+rules.align_open_plans_with_catalogue(conn)
+
 # Automatic closing runs at start-up, not at 18:00 sharp, because at that hour
 # the computer may well be off.
 _closed_at_startup = [dict(s) for s in rules.close_past_sessions(conn)]
@@ -375,7 +380,10 @@ async def update_catalogue_module(code: str, data: CatalogueModuleIn):
     else:
         rules.ensure_area_colours(conn)
     conn.commit()
-    return {"codice": code}
+    # The plans hold a copy of the title: without this they would keep showing
+    # the old one. Only title and area travel - see the function's docstring.
+    aligned = rules.align_open_plans_with_catalogue(conn)
+    return {"codice": code, "piani_aggiornati": aligned["updated"]}
 
 
 @app.delete("/api/catalogue/{code}")
