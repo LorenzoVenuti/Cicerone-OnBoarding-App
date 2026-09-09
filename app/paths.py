@@ -21,6 +21,13 @@ FROZEN = getattr(sys, "frozen", False)
 
 APP_NAME = "Cicerone"
 
+# The one place the version is written. `Cicerone.spec` reads it from here when
+# it builds the package, and `/api/state` hands it to the interface, so the
+# number on screen is always the number that was built. Packages travel by hand
+# on a USB stick: "which version is she running?" has to be answerable without
+# opening the bundle.
+VERSION = "1.2.0"
+
 
 def resource_folder() -> Path:
     """Where the files the program reads, and never writes, are kept."""

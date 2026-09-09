@@ -13,6 +13,7 @@ a single executable would work there too, but it starts more slowly and makes
 signing harder, so COLLECT + BUNDLE is used instead.
 """
 
+import re
 import sys
 
 MACOS = sys.platform == "darwin"
@@ -20,6 +21,13 @@ MACOS = sys.platform == "darwin"
 # The icon is optional: without it the package is still built, with the system
 # one. That way the build does not break when the file is not there yet.
 from pathlib import Path
+
+# The version comes from app/paths.py, which is the single place it is written.
+# Read, not imported: importing the package here would drag in its dependencies
+# during the build for one string.
+VERSION = re.search(
+    r'^VERSION = "([^"]+)"', Path("app/paths.py").read_text(encoding="utf-8"), re.M
+).group(1)
 
 icon_mac = Path("app/resources/Cicerone.icns")
 icon_win = Path("app/resources/Cicerone.ico")
@@ -85,8 +93,8 @@ if MACOS:
         info_plist={
             "CFBundleName": "Cicerone",
             "CFBundleDisplayName": "Cicerone",
-            "CFBundleShortVersionString": "1.1.1",
-            "CFBundleVersion": "1.1.1",
+            "CFBundleShortVersionString": VERSION,
+            "CFBundleVersion": VERSION,
             "LSMinimumSystemVersion": "12.0",
             "NSHighResolutionCapable": True,
             # Without this sentence macOS denies control of the mail program

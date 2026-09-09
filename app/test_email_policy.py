@@ -353,6 +353,38 @@ class ApiTests(unittest.TestCase):
     def tearDownClass(cls) -> None:
         shutil.rmtree(cls.folder, ignore_errors=True)
 
+    def test_a_closed_plan_refuses_writes(self) -> None:
+        """Hiding the buttons is a courtesy; refusing here is the guarantee."""
+        import asyncio
+
+        from fastapi import HTTPException
+
+        from app import rules
+
+        rules.close_plan(self.conn, self.fixture["piano"], "2026-09-09T10:00:00")
+        session = self.main.SessionIn(
+            piano_id=self.fixture["piano"], piano_modulo_id=self.fixture["modulo"],
+            data="2026-09-20", ora_inizio="10:00", ora_fine="11:00",
+            dettaglio="dopo la chiusura", note=None, tutor=[],
+        )
+        with self.assertRaises(HTTPException) as refused:
+            asyncio.run(self.main.create_session(session))
+        self.assertEqual(409, refused.exception.status_code)
+
+        # and it accepts again once reopened
+        rules.reopen_plan(self.conn, self.fixture["piano"])
+        created = asyncio.run(self.main.create_session(session))
+        self.assertIn("id", created)
+
+    def test_the_state_carries_the_version(self) -> None:
+        """Packages travel by USB: the version has to be readable on screen."""
+        import asyncio
+
+        from app import paths
+
+        state = asyncio.run(self.main.state())
+        self.assertEqual(paths.VERSION, state["version"])
+
     def test_create_move_and_cancel_endpoints_with_delivery_off(self) -> None:
         sender = MockSender()
         dati = self.main.SessionIn(

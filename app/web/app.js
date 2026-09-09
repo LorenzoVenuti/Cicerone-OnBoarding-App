@@ -90,6 +90,9 @@ function inizioSettimana(d) {
 
 async function avvia() {
   stato = await api("/state");
+  // Written once: the version cannot change while the program is running, and
+  // it has to be readable to answer "which one are you on?" over the phone.
+  el("versione").textContent = stato.version ? `v${stato.version}` : "";
   persone = await api("/people");
   catalogo = await api("/catalogue");
   await caricaAree();
@@ -112,6 +115,11 @@ async function caricaAree() {
   aree = Object.fromEntries(listaAree.map((a) => [a.nome, a.colore]));
 }
 
+/** True while the plan on screen is closed: it must not be written to. */
+function pianoChiuso() {
+  return Boolean(piano && piano.header && piano.header.chiuso_il);
+}
+
 async function caricaPiano(id) {
   piano = await api(`/plan/${id}`);
   el("scelta-piano").value = id;
@@ -119,6 +127,9 @@ async function caricaPiano(id) {
   el("sottotitolo").textContent =
     [t.mansione, t.reparto, t.data_inizio ? `dal ${dataEstesa(t.data_inizio)}` : null]
       .filter(Boolean).join(" · ");
+  const pastiglia = el("stato-piano");
+  pastiglia.hidden = !t.chiuso_il;
+  if (t.chiuso_il) pastiglia.textContent = `Chiuso il ${dataEstesa(t.chiuso_il.slice(0, 10))}`;
   // The calendar opens on the current week, not on the first session: there is
   // no point starting months back when those sessions are already done.
   lunediCorrente = inizioSettimana(new Date());
@@ -235,9 +246,13 @@ function vistaAgenda() {
         <div><span class="pastiglia" style="background:${COLORI[s.stato]}">${s.stato}</span>${
           s.chiusa_automaticamente ? '<span class="auto">auto</span>' : ""}</div>
         <div class="azioni">
-          <button class="azione" onclick="apriModifica(${s.id})" title="Sposta">${icona("sposta")}</button>
-          <button class="azione" onclick="segnaSvolta(${s.id})" title="Segna svolta">${icona("fatto")}</button>
-          <button class="azione" onclick="annulla(${s.id})" title="Annulla">${icona("annulla")}</button>
+          ${pianoChiuso() ? "" : `
+          <button class="azione" onclick="apriModifica(${s.id})"
+            title="Sposta" aria-label="Sposta la sessione del ${s.data} alle ${s.ora_inizio}">${icona("sposta")}</button>
+          <button class="azione" onclick="segnaSvolta(${s.id})"
+            title="Segna svolta" aria-label="Segna svolta la sessione del ${s.data} alle ${s.ora_inizio}">${icona("fatto")}</button>
+          <button class="azione" onclick="annulla(${s.id})"
+            title="Annulla" aria-label="Annulla la sessione del ${s.data} alle ${s.ora_inizio}">${icona("annulla")}</button>`}
         </div>
       </div>`).join("");
     return `<div class="giorno ${data < oggi ? "passato" : ""}">
@@ -266,7 +281,7 @@ function vistaAgenda() {
   el("vista").innerHTML = `
     <div class="barra">
       <div class="legenda">${legenda || '<span class="tenue-nota">Il colore a sinistra indica l\'area del modulo</span>'}</div>
-      <button class="azione primario" onclick="apriNuova()">${icona("piu")}Nuova sessione</button>
+      ${pianoChiuso() ? "" : `<button class="azione primario" onclick="apriNuova()">${icona("piu")}Nuova sessione</button>`}
     </div>
     ${giorni || '<p class="vuoto">Nessuna sessione. Creane una.</p>'}`;
 }
@@ -332,7 +347,7 @@ function vistaSettimana() {
         – ${fine.getDate()} ${MESI[fine.getMonth()]} ${fine.getFullYear()}</span>
       <button class="azione" onclick="cambiaSettimana(7)">successiva →</button>
       <button class="azione" onclick="vaiAOggi()">oggi</button>
-      <button class="azione primario" style="margin-left:auto" onclick="apriNuova()">${icona("piu")}Nuova sessione</button>
+      ${pianoChiuso() ? "" : `<button class="azione primario" style="margin-left:auto" onclick="apriNuova()">${icona("piu")}Nuova sessione</button>`}
     </div>
     <div class="settimana" style="--giorni:${visibili.length}; --altezza-ora:${ALTEZZA_ORA}px">
       <div class="angolo"></div>${intestazioni}
@@ -352,6 +367,10 @@ function vaiAOggi() {
 /* ---------- Training plan ---------- */
 
 function vistaPiano() {
+  // On a closed plan the manual columns are locked too: the API refuses the
+  // write anyway, and letting somebody type into a field that will be rejected
+  // is worse than not offering it.
+  const bloccato = pianoChiuso() ? "disabled" : "";
   const righe = piano.modules.map((m) => `
     <tr>
       <td>${m.codice}</td><td>${esc(m.area)}</td><td>${esc(m.titolo)}</td>
@@ -362,16 +381,16 @@ function vistaPiano() {
       <td class="num">${m.sessioni_svolte}</td>
       <td class="num">${m.ore_svolte}</td>
       <td><span class="pastiglia" style="background:${COLORI[m.stato]}">${m.stato}</span></td>
-      <td class="modificabile"><input type="date" value="${m.entro_il ?? ""}"
+      <td class="modificabile"><input type="date" value="${m.entro_il ?? ""}" ${bloccato}
           onchange="salvaModulo(${m.id},'entro_il',this.value)"></td>
-      <td class="modificabile"><input value="${esc(m.verifica_chiusura) ?? ""}"
+      <td class="modificabile"><input value="${esc(m.verifica_chiusura) ?? ""}" ${bloccato}
           onchange="salvaModulo(${m.id},'verifica_chiusura',this.value)"></td>
-      <td class="modificabile"><select onchange="salvaModulo(${m.id},'verifica_efficacia',this.value)">
+      <td class="modificabile"><select ${bloccato} onchange="salvaModulo(${m.id},'verifica_efficacia',this.value)">
         ${["", "Superata", "Da ripetere", "N.A."].map((v) =>
           `<option ${v === m.verifica_efficacia ? "selected" : ""}>${v}</option>`).join("")}</select></td>
-      <td class="modificabile"><input type="date" value="${m.data_verifica ?? ""}"
+      <td class="modificabile"><input type="date" value="${m.data_verifica ?? ""}" ${bloccato}
           onchange="salvaModulo(${m.id},'data_verifica',this.value)"></td>
-      <td class="modificabile"><select onchange="salvaModulo(${m.id},'esito',this.value)">
+      <td class="modificabile"><select ${bloccato} onchange="salvaModulo(${m.id},'esito',this.value)">
         ${["", "OK", "KO"].map((v) => `<option ${v === m.esito ? "selected" : ""}>${v}</option>`).join("")}</select></td>
     </tr>`).join("");
 
@@ -384,7 +403,11 @@ function vistaPiano() {
           onchange="salvaCodiceModulo(this.value)">
       </label>
       <button class="azione primario" onclick="stampaPiano()">${icona("stampa")}Stampa il modulo firmabile</button>
+      ${pianoChiuso()
+        ? `<button class="azione" onclick="riapriPiano()">Riapri il piano</button>`
+        : `<button class="azione" onclick="chiudiPiano()">Dichiara concluso</button>`}
     </div>
+    ${pianoChiuso() ? `<p class="nota avviso-chiuso">Piano concluso: non si modifica piu' e non segue le modifiche al catalogo. Riaprilo se devi correggere qualcosa.</p>` : ""}
     <div style="overflow-x:auto"><table>
       <thead><tr>
         <th>Cod.</th><th>Area</th><th>Formazione</th><th>Modalita</th><th>Tutor</th>
@@ -392,6 +415,32 @@ function vistaPiano() {
         <th>Entro il</th><th>Verifica chiusura</th><th>Verifica efficacia</th><th>Data verifica</th><th>Esito</th>
       </tr></thead><tbody>${righe}</tbody>
     </table></div>`;
+}
+
+/* Closing is what makes rule "a closed plan does not change" reachable at all:
+   without it every plan stays open for ever and keeps following the catalogue,
+   years after somebody finished their induction. Reversible on purpose. */
+async function chiudiPiano() {
+  const t = piano.header;
+  if (!confirm(`Dichiarare concluso il piano di ${t.risorsa}?\n\n`
+    + "Da quel momento non si modifica piu' e non segue le modifiche ai moduli. "
+    + "Si puo' riaprire.")) return;
+  await api(`/plan/${t.id}/close`, { method: "POST" });
+  await ricaricaPiano();
+}
+
+async function riapriPiano() {
+  await api(`/plan/${piano.header.id}/reopen`, { method: "POST" });
+  await ricaricaPiano();
+}
+
+/* Named for the plan on purpose: a `ricarica` already exists further down, for
+   the mail log, and in JavaScript the later declaration would have won. */
+async function ricaricaPiano() {
+  stato = await api("/state");
+  await caricaPiano(piano.header.id);
+  mostraAvvisi();
+  disegna();
 }
 
 async function salvaModulo(id, campo, valore) {

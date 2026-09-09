@@ -460,5 +460,72 @@ class CatalogueAlignmentTests(PlanFixture):
         )
 
 
+class ClosingAPlanTests(PlanFixture):
+    """Closing is what makes "a closed plan does not change" reachable at all.
+
+    Before this existed the column was in the schema and the rules honoured it,
+    but nothing ever set it: every plan stayed open for ever.
+    """
+
+    def test_a_new_plan_is_open(self) -> None:
+        self.assertFalse(rules.plan_is_closed(self.conn, self.piano))
+
+    def test_closing_records_when(self) -> None:
+        rules.close_plan(self.conn, self.piano, "2026-03-01T10:00:00")
+        self.assertTrue(rules.plan_is_closed(self.conn, self.piano))
+        self.assertEqual(
+            "2026-03-01T10:00:00",
+            self.conn.execute(
+                "SELECT chiuso_il FROM piano WHERE id = ?", (self.piano,)
+            ).fetchone()["chiuso_il"],
+        )
+
+    def test_closing_twice_keeps_the_first_date(self) -> None:
+        """It records when the plan was declared over, not the last click."""
+        first = rules.close_plan(self.conn, self.piano, "2026-03-01T10:00:00")
+        again = rules.close_plan(self.conn, self.piano, "2026-06-01T10:00:00")
+        self.assertEqual(first, again)
+
+    def test_closing_a_plan_that_does_not_exist(self) -> None:
+        self.assertIsNone(rules.close_plan(self.conn, 999, "2026-03-01T10:00:00"))
+
+    def test_reopening_undoes_it(self) -> None:
+        rules.close_plan(self.conn, self.piano, "2026-03-01T10:00:00")
+        rules.reopen_plan(self.conn, self.piano)
+        self.assertFalse(rules.plan_is_closed(self.conn, self.piano))
+
+    def test_a_closed_plan_stops_following_the_catalogue(self) -> None:
+        rules.close_plan(self.conn, self.piano, "2026-03-01T10:00:00")
+        self.conn.execute(
+            """INSERT INTO modulo_catalogo (codice, area, titolo, modalita_default, ordine)
+               VALUES ('M09', 'Acquisti', 'Ciclo passivo', 'Spiegazione', 9)"""
+        )
+        self.conn.commit()
+        self.assertEqual(
+            {"added": 0, "updated": 0},
+            rules.align_open_plans_with_catalogue(self.conn),
+        )
+
+    def test_automatic_closing_leaves_a_closed_plan_alone(self) -> None:
+        """Otherwise it would mark sessions Svolta inside a signed document."""
+        self.conn.execute(
+            """INSERT INTO sessione (piano_id, piano_modulo_id, data, ora_inizio,
+                                     ora_fine, stato, creata_il, modificata_il)
+               VALUES (?, ?, '2026-01-08', '09:00', '11:00', 'Pianificata',
+                       '2026-01-01T09:00:00', '2026-01-01T09:00:00')""",
+            (self.piano, self.modulo),
+        )
+        self.conn.commit()
+
+        now = datetime(2026, 1, 20, 9, 0)
+        self.assertEqual(1, len(rules.sessions_to_close(self.conn, now)))
+
+        rules.close_plan(self.conn, self.piano, "2026-01-15T10:00:00")
+        self.assertEqual([], rules.sessions_to_close(self.conn, now))
+
+        rules.reopen_plan(self.conn, self.piano)
+        self.assertEqual(1, len(rules.sessions_to_close(self.conn, now)))
+
+
 if __name__ == "__main__":
     unittest.main()

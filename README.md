@@ -23,7 +23,7 @@ Nothing to install: no Python, no runtime. You get one package and double-click
 it. Step-by-step instructions, in Italian, are in
 **[docs/istruzioni.pdf](docs/istruzioni.pdf)**.
 
-1. Unzip `Cicerone-v1.1.1.zip` and move **Cicerone** where you keep your programs.
+1. Unzip `Cicerone-v1.2.0.zip` and move **Cicerone** where you keep your programs.
 2. Open it.
 3. On first run the app asks **which mail program** the notifications should be
    sent from, and lets you send a test before confirming.
@@ -48,7 +48,7 @@ Server only, reloading on every save:
 
     .venv/bin/python -m uvicorn app.main:app --reload --port 8731
 
-The tests — 103 of them, covering the plan calculation, automatic closing, clash
+The tests — 112 of them, covering the plan calculation, automatic closing, clash
 detection, delivery and archive upgrades:
 
     .venv/bin/python -m unittest discover -s app -p "test_*.py"
@@ -65,6 +65,12 @@ session.
 hours and status derived from the sessions alone. The assessment columns stay
 editable by hand, because they are a person's judgement. It exports to PDF in
 the shape of the quality-system form, ready to sign.
+
+When the induction is over the plan is **declared finished**. From then on it
+stops changing: it no longer follows the module catalogue, automatic completion
+leaves its sessions alone, and the app refuses to write to it — which is the
+point, because the plan is a certification record. It can be reopened if
+something needs correcting.
 
 **Modules** — the catalogue every new hire's plan is created from, with the
 colour of each area.
@@ -186,7 +192,7 @@ attaches to files make the signing fail.
 
 To hand it over, compress it rather than copying the folder:
 
-    ditto -c -k --keepParent dist/Cicerone.app Cicerone-v1.1.1.zip
+    ditto -c -k --keepParent dist/Cicerone.app Cicerone-v1.2.0.zip
 
 A USB stick formatted for Windows (FAT32 or exFAT) does not preserve the execute
 permission: copying the open package onto one leaves it unable to start on the

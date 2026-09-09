@@ -18,7 +18,7 @@ from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import db, delivery, messages, pdf_export, rules
+from . import db, delivery, messages, paths, pdf_export, rules
 from .paths import resource_folder
 
 WEB_FOLDER = resource_folder() / "app" / "web"
@@ -202,12 +202,29 @@ async def _notify(session_id: int, kind: str, previous: dict | None = None) -> d
     return {"oggetto": message["oggetto"], **outcome}
 
 
+def _refuse_if_closed(plan_id: int) -> None:
+    """A closed plan does not accept changes: it is a signed record.
+
+    Enforced here and not only in the interface, because hiding a button is a
+    courtesy and this is a guarantee.
+    """
+    if rules.plan_is_closed(conn, plan_id):
+        raise HTTPException(409, "il piano e' chiuso: riaprilo per modificarlo")
+
+
+def _plan_of_session(session_id: int) -> int | None:
+    row = conn.execute(
+        "SELECT piano_id FROM sessione WHERE id = ?", (session_id,)
+    ).fetchone()
+    return row["piano_id"] if row else None
+
+
 @app.get("/api/state")
 async def state():
     plans = conn.execute(
         """
-        SELECT p.id, p.creato_il, r.reparto, r.mansione, r.data_inizio,
-               pe.nome || ' ' || pe.cognome AS risorsa
+        SELECT p.id, p.creato_il, p.chiuso_il, r.reparto, r.mansione,
+               r.data_inizio, pe.nome || ' ' || pe.cognome AS risorsa
         FROM piano p JOIN risorsa r ON r.id = p.risorsa_id
         JOIN persona pe ON pe.id = r.persona_id
         ORDER BY r.data_inizio DESC
@@ -217,6 +234,7 @@ async def state():
         "SELECT COUNT(*) c FROM persona WHERE email IS NULL OR email = ''"
     ).fetchone()["c"]
     return {
+        "version": paths.VERSION,
         "plans": [dict(p) for p in plans],
         "closed_at_startup": _closed_at_startup,
         "people_without_email": without_email,
@@ -236,7 +254,7 @@ async def state():
 async def plan(plan_id: int):
     header = conn.execute(
         """
-        SELECT p.id, r.reparto, r.mansione, r.data_inizio, r.motivo,
+        SELECT p.id, p.chiuso_il, r.reparto, r.mansione, r.data_inizio, r.motivo,
                pe.nome || ' ' || pe.cognome AS risorsa,
                resp.nome || ' ' || resp.cognome AS responsabile,
                tut.nome  || ' ' || tut.cognome  AS tutor_principale
@@ -452,6 +470,7 @@ async def clashes(
 
 @app.post("/api/sessions")
 async def create_session(data: SessionIn):
+    _refuse_if_closed(data.piano_id)
     now = _now()
     session_id = conn.execute(
         """
@@ -472,6 +491,7 @@ async def update_session(session_id: int, data: SessionPatch):
     before = conn.execute("SELECT * FROM sessione WHERE id = ?", (session_id,)).fetchone()
     if before is None:
         raise HTTPException(404, "sessione inesistente")
+    _refuse_if_closed(before["piano_id"])
 
     fields = data.model_dump(exclude_none=True)
     tutors = fields.pop("tutor", None)
@@ -516,6 +536,10 @@ async def update_session(session_id: int, data: SessionPatch):
 @app.delete("/api/sessions/{session_id}")
 async def cancel_session(session_id: int):
     """Sessions are never deleted: they are cancelled, and stay in the plan."""
+    plan_id = _plan_of_session(session_id)
+    if plan_id is None:
+        raise HTTPException(404, "sessione inesistente")
+    _refuse_if_closed(plan_id)
     conn.execute(
         "UPDATE sessione SET stato = 'Annullata', modificata_il = ? WHERE id = ?",
         (_now(), session_id),
@@ -524,8 +548,34 @@ async def cancel_session(session_id: int):
     return {"id": session_id, "mail": await _notify(session_id, "annullamento")}
 
 
+@app.post("/api/plan/{plan_id}/close")
+async def close_plan(plan_id: int):
+    """Declares the induction finished. Reversible - see the reopen route."""
+    closed_on = rules.close_plan(conn, plan_id, _now())
+    if closed_on is None:
+        raise HTTPException(404, "piano inesistente")
+    return {"id": plan_id, "chiuso_il": closed_on}
+
+
+@app.post("/api/plan/{plan_id}/reopen")
+async def reopen_plan(plan_id: int):
+    """Undoes a closing: one click closes it, and people misclick."""
+    if conn.execute("SELECT 1 FROM piano WHERE id = ?", (plan_id,)).fetchone() is None:
+        raise HTTPException(404, "piano inesistente")
+    rules.reopen_plan(conn, plan_id)
+    # It follows the catalogue again from now on, so catch up on what it missed.
+    rules.align_open_plans_with_catalogue(conn)
+    return {"id": plan_id, "chiuso_il": None}
+
+
 @app.patch("/api/modules/{module_id}")
 async def update_module(module_id: int, data: ModulePatch):
+    owner = conn.execute(
+        "SELECT piano_id FROM piano_modulo WHERE id = ?", (module_id,)
+    ).fetchone()
+    if owner is None:
+        raise HTTPException(404, "modulo inesistente")
+    _refuse_if_closed(owner["piano_id"])
     fields = data.model_dump(exclude_unset=True)
     if not fields:
         return {"id": module_id}

@@ -2,9 +2,9 @@
 <html lang="it">
 <head>
   <meta charset="utf-8">
-  <title>Piano Formazione</title>
+  <title>Cicerone</title>
   <script>try{var t=localStorage.getItem("tema")||(matchMedia("(prefers-color-scheme: dark)").matches?"scuro":"chiaro");document.documentElement.setAttribute("data-theme",t);}catch(e){}</script>
-  <link rel="stylesheet" href="/static/style.css?v=14">
+  <link rel="stylesheet" href="/static/style.css?v=15">
 </head>
 <body>
   <header>
@@ -12,8 +12,10 @@
       <span class="etichetta-scelta">In formazione</span>
       <select id="scelta-piano" title="Cambia dipendente"></select>
       <span class="sottotitolo" id="sottotitolo"></span>
+      <span class="pastiglia-chiuso" id="stato-piano" hidden></span>
       <button class="azione" id="nuova-risorsa">Nuova risorsa</button>
       <button class="tema" id="toggle-tema" title="Tema chiaro / scuro" aria-label="Cambia tema"></button>
+      <span class="versione" id="versione" title="Versione di Cicerone"></span>
     </div>
     <nav>
       <button data-vista="agenda" class="attiva">Agenda</button>
@@ -39,6 +41,6 @@
     </div>
   </dialog>
 
-  <script src="/static/app.js?v=18"></script>
+  <script src="/static/app.js?v=19"></script>
 </body>
 </html>

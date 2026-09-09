@@ -718,3 +718,31 @@ input[type="color"]::-moz-color-swatch { border: none; border-radius: 4px; }
   margin-right: 10px;
 }
 .codice-modulo input { width: 190px; font-size: 13px; }
+
+/* ---------- a plan declared finished ---------- */
+
+/* The badge sits next to the person's name: the state of the plan has to be
+   readable before you touch anything, not after a write is refused. */
+.pastiglia-chiuso {
+  font-size: 12px;
+  font-weight: 600;
+  padding: 3px 9px;
+  border-radius: 999px;
+  color: var(--tenue);
+  background: var(--intestazione);
+  border: 1px solid var(--bordo);
+  white-space: nowrap;
+}
+
+.avviso-chiuso {
+  margin: 0 0 12px;
+}
+
+/* The version, quiet in the corner. It is support information, not content:
+   somebody has to be able to answer "which one are you running?" out loud. */
+.versione {
+  font-size: 11px;
+  color: var(--tenue);
+  font-variant-numeric: tabular-nums;
+  margin-left: 2px;
+}

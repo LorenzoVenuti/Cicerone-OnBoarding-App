@@ -117,6 +117,22 @@ title editable per plan, this alignment has to stop touching it.
 Deleting a catalogue module still leaves existing plans alone: a plan already
 using it has to keep it.
 
+**4c. Closing a plan is what makes 4b reachable.**
+`chiuso_il` sat in the schema for a long time with nothing ever setting it, so
+in practice every plan stayed open for ever and kept following the catalogue
+years after somebody finished their induction. `rules.close_plan` writes it and
+`rules.reopen_plan` undoes it - the undo exists because closing is one click and
+people misclick, and without it the only remedy would be editing the database by
+hand.
+
+A closed plan is inert: it does not follow the catalogue, automatic completion
+skips its sessions (otherwise it would be marking things `Svolta` inside a
+signed document), and every write to its sessions and modules is refused with
+409 by `_refuse_if_closed` in `app/main.py`. The interface hides the buttons and
+disables the form's manual columns as well, but that is a courtesy - the refusal
+in the API is the guarantee. Closing twice keeps the first date: it records when
+the plan was declared over, not the last click.
+
 **5. Sessions are never deleted.**
 They are cancelled, staying in the plan with state `Annullata`. The training
 plan is a certification document: it has to show what was called off too.
@@ -192,6 +208,11 @@ records of real people end up in the database.
 
 ## Conventions
 
+- **The version is written in one place**, `paths.VERSION`. `Cicerone.spec`
+  reads it from there when building, `/api/state` hands it to the interface, and
+  it is shown in the header. Packages are handed over by USB, so "which version
+  is she running?" has to be answerable without opening the bundle. Bump it in
+  `paths.py` and nowhere else.
 - Commit messages in English, imperative present (`Add PDF export`).
 - No emoji, anywhere.
 - The interface uses no framework and has no build step: three files in

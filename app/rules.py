@@ -166,6 +166,48 @@ def align_open_plans_with_catalogue(conn: sqlite3.Connection) -> dict[str, int]:
     return {"added": added, "updated": updated}
 
 
+def plan_is_closed(conn: sqlite3.Connection, plan_id: int) -> bool:
+    """Whether that plan has been declared finished."""
+    row = conn.execute(
+        "SELECT chiuso_il FROM piano WHERE id = ?", (plan_id,)
+    ).fetchone()
+    return bool(row and row["chiuso_il"])
+
+
+def close_plan(conn: sqlite3.Connection, plan_id: int, when: str) -> str | None:
+    """Declares a plan finished, and stops it changing on its own.
+
+    From here on the plan no longer follows the catalogue, automatic completion
+    leaves its sessions alone, and the API refuses to write to it. That is the
+    point: the training plan is a certification record, and once it is signed it
+    has to keep saying what it said.
+
+    Closing twice keeps the first date: it is when the plan was declared over,
+    not when somebody last pressed the button.
+    """
+    already = conn.execute(
+        "SELECT chiuso_il FROM piano WHERE id = ?", (plan_id,)
+    ).fetchone()
+    if already is None:
+        return None
+    if already["chiuso_il"]:
+        return already["chiuso_il"]
+    conn.execute("UPDATE piano SET chiuso_il = ? WHERE id = ?", (when, plan_id))
+    conn.commit()
+    return when
+
+
+def reopen_plan(conn: sqlite3.Connection, plan_id: int) -> None:
+    """Undoes a closing.
+
+    It exists because the closing is one click and people misclick. Without a
+    way back, a mistake would be permanent from the interface, and the only
+    remedy would be somebody editing the database by hand.
+    """
+    conn.execute("UPDATE piano SET chiuso_il = NULL WHERE id = ?", (plan_id,))
+    conn.commit()
+
+
 def duration_hours(start_time: str, end_time: str) -> float:
     """Length in hours between two 'HH:MM' times."""
     start = datetime.strptime(start_time, "%H:%M")
@@ -253,12 +295,16 @@ def sessions_to_close(
     now = now or datetime.now()
     today = now.date().isoformat()
 
+    # A closed plan is a signed document: automatic completion would be marking
+    # sessions Svolta inside it, months after somebody declared it finished.
     candidates = conn.execute(
         f"""
-        SELECT * FROM sessione
-        WHERE stato IN ({",".join("?" * len(OPEN_STATES))})
-          AND data <= ?
-        ORDER BY data, ora_inizio
+        SELECT s.* FROM sessione s
+        JOIN piano p ON p.id = s.piano_id
+        WHERE s.stato IN ({",".join("?" * len(OPEN_STATES))})
+          AND s.data <= ?
+          AND p.chiuso_il IS NULL
+        ORDER BY s.data, s.ora_inizio
         """,
         (*OPEN_STATES, today),
     ).fetchall()
